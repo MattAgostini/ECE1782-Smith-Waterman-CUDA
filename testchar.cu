@@ -86,7 +86,6 @@ int main( int argc, char *argv[] ) {
 
     char* temp;
     vector<char*> subjectSequences;
-	datafile >> temp;
     while (datafile >> temp) {
        subjectSequences.push_back(temp);
        subjectLengthSum += strlen(temp);
