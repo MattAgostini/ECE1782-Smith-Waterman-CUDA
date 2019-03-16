@@ -30,7 +30,7 @@ double getTimeStamp() {
     return (double) tv.tv_usec/1000000 + tv.tv_sec;
 }
 
-__global__ void f_scoreSequence(float* seqA, float* seqB, float* scoringMatrix, int width, int height) {
+__global__ void f_scoreSequence(float* query, float* subject, float* scoringMatrix, int width, int height) {
     // Do the scoring
     int substitutionMatrix[2] = {SEQ_EQUAL, SEQ_DIFF};
     
@@ -46,14 +46,10 @@ __global__ void f_scoreSequence(float* seqA, float* seqB, float* scoringMatrix, 
             score = max(score, scoringMatrix[((i - 1) * (width + 1)) + j] - GAP_PENALTY);
             
             int similarityScore = 0;
-            if (seqA[i - 1] == seqB[j - 1]) similarityScore = substitutionMatrix[0];
+            if (query[i - 1] == subject[32*j - 1 + xIndex]) similarityScore = substitutionMatrix[0];
             else similarityScore = substitutionMatrix[1];
             
             score = max(score, scoringMatrix[((i - 1) * (width + 1)) + j - 1] + similarityScore);
-            
-            if (score > maxScore) {
-                maxScore = score;
-            }
             
             maxScore = max(maxScore, score);
                     
@@ -97,7 +93,7 @@ int main( int argc, char *argv[] ) {
     cudaMallocManaged((void**) &d_output_scoring, ((querySequence.length() + 1) * (largestSubjectLength + 1) * 32) * sizeof(float));
     
     // Convert string to float representation (can't really use strings on the GPU)
-    for (int i = 0; i < querySequence.length();i++) {
+    for (int i = 0; i < querySequence.length();i++) { // Pad to nearest 8 eventually here
         switch(querySequence[i])
         {
             case 'A': { d_input_query[i] = A;
@@ -116,19 +112,19 @@ int main( int argc, char *argv[] ) {
     }
     
     for (int j = 0; j < 32; j++) {
-        for (int i = 0; i < largestSubjectLength; i++) {
+        for (int i = 0; i < largestSubjectLength; i++) { // Will need to pad here
             switch(subjectSequences[j][i])
             {
-                case 'A': { d_input_subject[i] = A;
+                case 'A': { d_input_subject[i*32 + j] = A;
                             break;
                         }
-                case 'G': { d_input_subject[i] = G;
+                case 'G': { d_input_subject[i*32 + j] = G;
                             break;
                         }
-                case 'C': { d_input_subject[i] = C;
+                case 'C': { d_input_subject[i*32 + j] = C;
                             break;
                         }
-                case 'T': { d_input_subject[i] = T;
+                case 'T': { d_input_subject[i*32 + j] = T;
                             break;
                         }
             }
