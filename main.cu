@@ -37,7 +37,7 @@ __global__ void f_scoreSequence(float* seqA, float* seqB, float* scoringMatrix, 
     register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
     //register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
     
-    int maxScore = 0;
+    float maxScore = 0;
     for (int i = 1; i < (height + 1); i++) {
         for (int j = 1; j < (width + 1); j++) {
             float score = 0;
@@ -54,6 +54,8 @@ __global__ void f_scoreSequence(float* seqA, float* seqB, float* scoringMatrix, 
             if (score > maxScore) {
                 maxScore = score;
             }
+            
+            maxScore = max(maxScore, score);
                     
             scoringMatrix[(i * (width + 1)) + j] = score;
         }
