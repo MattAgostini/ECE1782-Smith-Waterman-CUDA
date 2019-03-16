@@ -30,7 +30,7 @@ double getTimeStamp() {
 
 __global__ void f_scoreSequence(float* seqA, float* seqB, float* scoringMatrix, float* tracebackMatrix, int width, int height) {
     // Do the scoring
-    int subMatrix[2] = {SEQ_EQUAL, SEQ_DIFF};
+    int substitutionMatrix[2] = {SEQ_EQUAL, SEQ_DIFF};
     
     int maxScore = 0;
     for (int i = 1; i < (height + 1); i++) {
@@ -40,29 +40,20 @@ __global__ void f_scoreSequence(float* seqA, float* seqB, float* scoringMatrix, 
             if (scoringMatrix[(i * (width + 1)) + j - 1] - GAP_PENALTY > score) {
                 score = scoringMatrix[(i * (width + 1)) + j - 1] - GAP_PENALTY;
                 tracebackMatrix[(i * (width + 1)) + j] = FROM_LEFT;
-                
-                //score = scoringMatrix[i][j - 1] - GAP_PENALTY;
-                //tracebackMatrix[i][j] = FROM_LEFT;
             }
             
             if (scoringMatrix[((i - 1) * (width + 1)) + j] - GAP_PENALTY > score) {
                 score = scoringMatrix[((i - 1) * (width + 1)) + j] - GAP_PENALTY;
                 tracebackMatrix[(i * (width + 1)) + j] = FROM_TOP;
-                
-                //score = scoringMatrix[i - 1][j] - GAP_PENALTY;
-                //tracebackMatrix[i][j] = FROM_TOP;
             }
             
             int similarityScore = 0;
-            if (seqA[i - 1] == seqB[j - 1]) similarityScore = subMatrix[0];
-            else similarityScore = subMatrix[1];
+            if (seqA[i - 1] == seqB[j - 1]) similarityScore = substitutionMatrix[0];
+            else similarityScore = substitutionMatrix[1];
             
             if (scoringMatrix[((i - 1) * (width + 1)) + j - 1] + similarityScore > score) {
                 score = scoringMatrix[((i - 1) * (width + 1)) + j - 1] + similarityScore;
                 tracebackMatrix[(i * (width + 1)) + j] = FROM_TOP_LEFT;
-                
-                //score = scoringMatrix[i - 1][j - 1] + similarityScore;
-                //tracebackMatrix[i][j] = FROM_TOP_LEFT;
             }
             
             if (score > maxScore) {
