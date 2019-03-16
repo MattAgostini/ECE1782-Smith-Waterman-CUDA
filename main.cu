@@ -40,23 +40,16 @@ __global__ void f_scoreSequence(float* seqA, float* seqB, float* scoringMatrix, 
     int maxScore = 0;
     for (int i = 1; i < (height + 1); i++) {
         for (int j = 1; j < (width + 1); j++) {
-            int score = 0;
+            float score = 0;
             
-            if (scoringMatrix[(i * (width + 1)) + j - 1] - GAP_PENALTY > score) {
-                score = scoringMatrix[(i * (width + 1)) + j - 1] - GAP_PENALTY;
-            }
-            
-            if (scoringMatrix[((i - 1) * (width + 1)) + j] - GAP_PENALTY > score) {
-                score = scoringMatrix[((i - 1) * (width + 1)) + j] - GAP_PENALTY;
-            }
+            score = max(score, scoringMatrix[(i * (width + 1)) + j - 1] - GAP_PENALTY);
+            score = max(score, scoringMatrix[((i - 1) * (width + 1)) + j] - GAP_PENALTY);
             
             int similarityScore = 0;
             if (seqA[i - 1] == seqB[j - 1]) similarityScore = substitutionMatrix[0];
             else similarityScore = substitutionMatrix[1];
             
-            if (scoringMatrix[((i - 1) * (width + 1)) + j - 1] + similarityScore > score) {
-                score = scoringMatrix[((i - 1) * (width + 1)) + j - 1] + similarityScore;
-            }
+            score = max(score, scoringMatrix[((i - 1) * (width + 1)) + j - 1] + similarityScore);
             
             if (score > maxScore) {
                 maxScore = score;
@@ -149,8 +142,9 @@ int main( int argc, char *argv[] ) {
     cudaDeviceSynchronize();
     
     // Print results
+    int subject = 0;
     string seqA = querySequence;
-    string seqB = subjectSequences[0];
+    string seqB = subjectSequences[subject];
     
     cout << "    ";
     for (int j = 0; j < (seqB.length() + 1); j++) {
