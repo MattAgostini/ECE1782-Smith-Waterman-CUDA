@@ -23,6 +23,8 @@
 
 using namespace std;
 
+__constant__ float constQuery[1024];
+
 // Time stamp function
 double getTimeStamp() {
     struct timeval tv;
@@ -30,13 +32,13 @@ double getTimeStamp() {
     return (double) tv.tv_usec/1000000 + tv.tv_sec;
 }
 
-__global__ void f_scoreSequence(float* seqA, float* seqB, float* scoringMatrix, int width, int height) {
+__global__ void f_scoreSequence(float* seqB, float* scoringMatrix, int width, int height) {
     // Do the scoring
     int substitutionMatrix[2] = {SEQ_EQUAL, SEQ_DIFF};
     
     register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
     //register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
-    
+
     float maxScore = 0;
     for (int i = 1; i < (height + 1); i++) {
         for (int j = 1; j < (width + 1); j++) {
@@ -46,7 +48,7 @@ __global__ void f_scoreSequence(float* seqA, float* seqB, float* scoringMatrix, 
             score = max(score, scoringMatrix[((i - 1) * (width + 1)) + j] - GAP_PENALTY);
             
             int similarityScore = 0;
-            if (seqA[i - 1] == seqB[j - 1]) similarityScore = substitutionMatrix[0];
+            if (constQuery[i - 1] == seqB[j - 1]) similarityScore = substitutionMatrix[0];
             else similarityScore = substitutionMatrix[1];
             
             score = max(score, scoringMatrix[((i - 1) * (width + 1)) + j - 1] + similarityScore);
@@ -87,8 +89,8 @@ int main( int argc, char *argv[] ) {
     datafile.close();
     
     // alloc memory on GPU
-    float* d_input_query;
-    cudaMallocManaged((void**) &d_input_query, querySequence.length() * sizeof(float));
+    float* d_input_query = new float[querySequence.length()];
+	memset(d_input_query, 0, sizeof(float) * querySequence.length());
     
     float* d_input_subject;
     cudaMallocManaged((void**) &d_input_subject, (largestSubjectLength * 32) * sizeof(float));
@@ -135,11 +137,13 @@ int main( int argc, char *argv[] ) {
         }
     }
     
+	cudaMemcpyToSymbol(constQuery, d_input_query, sizeof(float)*querySequence.length());
+
     // Call GPU
     dim3 block(32, 1);
     dim3 grid(1, 1);
  
-    f_scoreSequence<<<grid, block>>>(d_input_query, d_input_subject, d_output_scoring, largestSubjectLength, querySequence.length());
+    f_scoreSequence<<<grid, block>>>(d_input_subject, d_output_scoring, largestSubjectLength, querySequence.length());
     
     cudaDeviceSynchronize();
     
