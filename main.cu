@@ -1,6 +1,8 @@
 #include <sys/time.h>
 #include <stdio.h>
 #include <iostream>
+#include <fstream>
+#include <vector>
 
 #define SEQ_EQUAL 3
 #define SEQ_DIFF -3
@@ -28,9 +30,12 @@ double getTimeStamp() {
     return (double) tv.tv_usec/1000000 + tv.tv_sec;
 }
 
-__global__ void f_scoreSequence(float* seqA, float* seqB, float* scoringMatrix, float* tracebackMatrix, int width, int height) {
+__global__ void f_scoreSequence(float* seqA, float* seqB, float* scoringMatrix, int width, int height) {
     // Do the scoring
     int substitutionMatrix[2] = {SEQ_EQUAL, SEQ_DIFF};
+    
+    register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
+    //register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
     
     int maxScore = 0;
     for (int i = 1; i < (height + 1); i++) {
@@ -39,12 +44,10 @@ __global__ void f_scoreSequence(float* seqA, float* seqB, float* scoringMatrix, 
             
             if (scoringMatrix[(i * (width + 1)) + j - 1] - GAP_PENALTY > score) {
                 score = scoringMatrix[(i * (width + 1)) + j - 1] - GAP_PENALTY;
-                tracebackMatrix[(i * (width + 1)) + j] = FROM_LEFT;
             }
             
             if (scoringMatrix[((i - 1) * (width + 1)) + j] - GAP_PENALTY > score) {
                 score = scoringMatrix[((i - 1) * (width + 1)) + j] - GAP_PENALTY;
-                tracebackMatrix[(i * (width + 1)) + j] = FROM_TOP;
             }
             
             int similarityScore = 0;
@@ -53,7 +56,6 @@ __global__ void f_scoreSequence(float* seqA, float* seqB, float* scoringMatrix, 
             
             if (scoringMatrix[((i - 1) * (width + 1)) + j - 1] + similarityScore > score) {
                 score = scoringMatrix[((i - 1) * (width + 1)) + j - 1] + similarityScore;
-                tracebackMatrix[(i * (width + 1)) + j] = FROM_TOP_LEFT;
             }
             
             if (score > maxScore) {
@@ -71,31 +73,37 @@ int main( int argc, char *argv[] ) {
         printf("Error: wrong number of args\n");
         exit(1);
     }
-    
-    // Need to take a database as input, read in a number of sequences, then parallelize the queries per thread/block
 
-    string seqA = argv[1];
-    string seqB = argv[2];
+    string querySequence = argv[1];
     
-    int numElems = (seqA.length() + 1) * (seqB.length() + 1);
-    int bytes = numElems * sizeof(float);
+    // Parse query file
+    ifstream datafile;
+    datafile.open(argv[2]);
+    
+    string temp;
+    vector<string> subjectSequences;
+    while (datafile >> temp) {
+       subjectSequences.push_back(temp);
+    }
+    
+    // Just do the first 32 elements for a test
+    int largestSubjectLength = subjectSequences[31].length();
+    
+    datafile.close();
     
     // alloc memory on GPU
     float* d_input_query;
-    cudaMallocManaged((void**) &d_input_query, bytes);
+    cudaMallocManaged((void**) &d_input_query, querySequence.length() * sizeof(float));
     
     float* d_input_subject;
-    cudaMallocManaged((void**) &d_input_subject, bytes);
+    cudaMallocManaged((void**) &d_input_subject, (largestSubjectLength * 32) * sizeof(float));
     
     float* d_output_scoring;
-    cudaMallocManaged((void**) &d_output_scoring, bytes);
-    
-    float* d_output_traceback;
-    cudaMallocManaged((void**) &d_output_traceback, bytes);
+    cudaMallocManaged((void**) &d_output_scoring, ((querySequence.length() + 1) * (largestSubjectLength + 1) * 32) * sizeof(float));
     
     // Convert string to float representation (can't really use strings on the GPU)
-    for (int i = 0; i < seqA.length();i++) {
-        switch(seqA[i])
+    for (int i = 0; i < querySequence.length();i++) {
+        switch(querySequence[i])
         {
             case 'A': { d_input_query[i] = A;
                         break;
@@ -112,71 +120,38 @@ int main( int argc, char *argv[] ) {
         }
     }
     
-    for (int i = 0; i < seqB.length(); i++) {
-        switch(seqB[i])
-        {
-            case 'A': { d_input_subject[i] = A;
-                        break;
-                    }
-            case 'G': { d_input_subject[i] = G;
-                        break;
-                    }
-            case 'C': { d_input_subject[i] = C;
-                        break;
-                    }
-            case 'T': { d_input_subject[i] = T;
-                        break;
-                    }
+    for (int j = 0; j < 32; j++) {
+        for (int i = 0; i < largestSubjectLength; i++) {
+            switch(subjectSequences[j][i])
+            {
+                case 'A': { d_input_subject[i] = A;
+                            break;
+                        }
+                case 'G': { d_input_subject[i] = G;
+                            break;
+                        }
+                case 'C': { d_input_subject[i] = C;
+                            break;
+                        }
+                case 'T': { d_input_subject[i] = T;
+                            break;
+                        }
+            }
         }
     }
     
     // Call GPU
-    dim3 block(1, 1);
+    dim3 block(32, 1);
     dim3 grid(1, 1);
  
-    f_scoreSequence<<<grid, block>>>(d_input_query, d_input_subject, d_output_scoring, d_output_traceback, seqB.length(), seqA.length());
+    f_scoreSequence<<<grid, block>>>(d_input_query, d_input_subject, d_output_scoring, largestSubjectLength, querySequence.length());
     
     cudaDeviceSynchronize();
     
-    /*
-    
-    string resultA;
-    string resultB;
-    
-    // Do the traceback to get the sequence
-    int iTrace = maxIndexI;
-    int jTrace = maxIndexJ;
-    int value = scoringMatrix[iTrace][jTrace];
-    while (value != 0) {
-        if (tracebackMatrix[iTrace][jTrace] == FROM_LEFT) {
-            jTrace--;
-            resultA.append("-");
-            resultB.append(seqB, jTrace, 1);
-            value = scoringMatrix[iTrace][jTrace];
-        } 
-        else if (tracebackMatrix[iTrace][jTrace] == FROM_TOP) {
-            iTrace--;
-            resultA.append(seqA, iTrace, 1);
-            resultB.append("-");
-            value = scoringMatrix[iTrace][jTrace];
-        } 
-        else if (tracebackMatrix[iTrace][jTrace] == FROM_TOP_LEFT) {
-            jTrace--;
-            iTrace--;
-            resultA.append(seqA, iTrace, 1);
-            resultB.append(seqB, jTrace, 1);
-            value = scoringMatrix[iTrace][jTrace];
-        }
-    }
-    
-    reverse(resultA.begin(), resultA.end());
-    reverse(resultB.begin(), resultB.end());
-    cout << resultA << endl;
-    cout << resultB << endl;
-    
-    */
-    
     // Print results
+    string seqA = querySequence;
+    string seqB = subjectSequences[0];
+    
     cout << "    ";
     for (int j = 0; j < (seqB.length() + 1); j++) {
         cout << seqB[j] << " "; 
@@ -187,7 +162,7 @@ int main( int argc, char *argv[] ) {
         if (i != 0) cout << seqA[i - 1] << " ";
         else cout << "  ";
         for (int j = 0; j < (seqB.length() + 1); j++) {
-            cout << d_output_scoring[(i * (seqB.length() + 1)) + j] << " "; 
+            cout << d_output_scoring[i * (seqB.length() + 1) + j] << " "; 
         }
         cout << endl;
     }
@@ -196,6 +171,5 @@ int main( int argc, char *argv[] ) {
     cudaFree(d_input_query);
     cudaFree(d_input_subject);
     cudaFree(d_output_scoring);
-    cudaFree(d_output_traceback);
     cudaDeviceReset();
 }
