@@ -3,6 +3,9 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <limits>
+#include <sstream>
+#include <algorithm>
 
 #define SEQ_EQUAL 3
 #define SEQ_DIFF -3
@@ -54,13 +57,49 @@ __global__ void f_scoreSequence(float* subject, float* scoringMatrix, int width,
             else similarityScore = substitutionMatrix[1];
 
             score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + ((i - 1) * (width + 1)) + j - 1] + similarityScore);
-            
+
             maxScore = max(maxScore, score);
 
             scoringMatrix[(width + 1)*(height + 1)*yIndex + (i * (width + 1)) + j] = score;
         }
     }
 }
+
+class ParsedFASTA {
+private:
+    bool isQuery;
+    stringstream header;
+    string buffer;
+public:
+    ParsedFASTA(const char *filepath, bool _isQuery) {
+        isQuery = _isQuery;
+
+        ifstream filestream;
+        filestream.open(filepath);
+        filestream.ignore(numeric_limits<streamsize>::max(), '\n');
+
+        stringstream fasta_stream;
+        fasta_stream << filestream.rdbuf();
+        buffer.reserve(10000); // optimization -- reserve some arbitrary length
+        string tmp;
+        while (fasta_stream) {
+            fasta_stream >> tmp;
+            buffer.append(tmp);
+        }
+        filestream.close();
+    };
+
+    ~ParsedFASTA() {
+    };
+
+    void print_buffer() {
+        cout << buffer << endl;
+    };
+
+    string get_buffer() {
+        return buffer;
+    };
+};
 
 int main( int argc, char *argv[] ) {
     double time_start = getTimeStamp();
@@ -71,7 +110,13 @@ int main( int argc, char *argv[] ) {
         exit(1);
     }
 
-    string querySequence = argv[1];
+    //string querySequence = argv[1];
+
+    ParsedFASTA query(argv[1], true);
+    cout << "Input buffer:";
+    query.print_buffer();
+    cout << endl;
+    string querySequence = query.get_buffer();
 
     // Parse query file
     ifstream datafile;
@@ -93,8 +138,8 @@ int main( int argc, char *argv[] ) {
 
     // alloc memory on GPU
     float* d_input_query = new float[querySequence.length()];
-	memset(d_input_query, 0, sizeof(float) * querySequence.length());
- 
+    memset(d_input_query, 0, sizeof(float) * querySequence.length());
+
     float* d_input_subject;
     cudaMallocManaged((void**) &d_input_subject, (largestSubjectLength * 32) * sizeof(float));
 
@@ -139,13 +184,13 @@ int main( int argc, char *argv[] ) {
             }
         }
     }
-    
+
     cudaMemcpyToSymbol(constQuery, d_input_query, sizeof(float)*querySequence.length());
 
     // Call GPU
     dim3 block(1, 32);
     dim3 grid(1, 1);
- 
+
     f_scoreSequence<<<grid, block>>>(d_input_subject, d_output_scoring, largestSubjectLength, querySequence.length());
 
     cudaDeviceSynchronize();

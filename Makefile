@@ -7,15 +7,21 @@
 #
 CC=nvcc
 CFLAGS=-ccbin clang++-3.8 -arch=sm_52
+TARGETPATH = ./bin
+SOURCEPATH = ./src
+MKDIR_P = mkdir -p
 
-.PHONY: all clean
-all: main testchar
+.PHONY: all directories clean
+all: directories $(TARGETPATH)/main $(TARGETPATH)/testchar
 
-main:
-	$(CC) -o main main.cu $(CFLAGS)
+directories:
+	$(MKDIR_P) $(TARGETPATH)
 
-testchar:
-	$(CC) -o testchar testchar.cu $(CFLAGS)
+$(TARGETPATH)/main: $(SOURCEPATH)/main.cu
+	$(CC) -o $(TARGETPATH)/main $(SOURCEPATH)/main.cu $(CFLAGS)
+
+$(TARGETPATH)/testchar: $(SOURCEPATH)/testchar.cu
+	$(CC) -o $(TARGETPATH)/testchar $(SOURCEPATH)/testchar.cu $(CFLAGS)
 
 clean:
-	rm main testchar
+	rm -rf ./bin
