@@ -33,34 +33,32 @@ double getTimeStamp() {
     return (double) tv.tv_usec/1000000 + tv.tv_sec;
 }
 
-__global__ void f_scoreSequence(char* seqB, float* scoringMatrix, int width, int height) {
+__global__ void f_scoreSequence(char* subject, float* scoringMatrix, int width, int height) {
     // Do the scoring
     int substitutionMatrix[2] = {SEQ_EQUAL, SEQ_DIFF};
 
     register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
-    //register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
+    register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
 
     float maxScore = 0;
     for (int i = 1; i < (height + 1); i++) {
         for (int j = 1; j < (width + 1); j++) {
             float score = 0;
 
-            score = max(score, scoringMatrix[(i * (width + 1)) + j - 1] - GAP_PENALTY);
-            score = max(score, scoringMatrix[((i - 1) * (width + 1)) + j] - GAP_PENALTY);
+            score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + (i * (width + 1)) + j - 1] - GAP_PENALTY);
+            score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + ((i - 1) * (width + 1)) + j] - GAP_PENALTY);
 
             int similarityScore = 0;
-            if (constQuery[i - 1] == seqB[j - 1]) similarityScore = substitutionMatrix[0];
+
+            // Just index scoring matrix from shared/constant memory in the future
+            if (constQuery[i - 1] == subject[width*yIndex + j - 1]) similarityScore = substitutionMatrix[0];
             else similarityScore = substitutionMatrix[1];
 
-            score = max(score, scoringMatrix[((i - 1) * (width + 1)) + j - 1] + similarityScore);
-
-            if (score > maxScore) {
-                maxScore = score;
-            }
-
+            score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + ((i - 1) * (width + 1)) + j - 1] + similarityScore);
+            
             maxScore = max(maxScore, score);
 
-            scoringMatrix[(i * (width + 1)) + j] = score;
+            scoringMatrix[(width + 1)*(height + 1)*yIndex + (i * (width + 1)) + j] = score;
         }
     }
 }
@@ -82,7 +80,7 @@ int main( int argc, char *argv[] ) {
 
     int subjectLengthSum = 0;
 
-	
+
 
     char* temp;
     vector<char*> subjectSequences;
@@ -102,12 +100,10 @@ int main( int argc, char *argv[] ) {
  
     char* d_input_subject;
     cudaMallocManaged((void**) &d_input_subject, (largestSubjectLength * 32) * sizeof(char));
-	/*
-	strcpy(d_input_subject, subjectSequences[0]);
-	for (int j = 1; j < 32; j++) {
-		strcat(d_input_subject, subjectSequences[j]);
-	}
-	*/
+	memcpy(d_input_subject, subjectSequences[0], ((largestSubjectLength * 32) + 1) * sizeof(char));
+	
+	for (int i = 1; i < subjectSequences.size(); i++)
+		strcat(d_input_subject, subjectSequences[i]);
 
     float* d_output_scoring;
     cudaMallocManaged((void**) &d_output_scoring, ((strlen(querySequence) + 1) * (largestSubjectLength + 1) * 32) * sizeof(float));
@@ -130,7 +126,7 @@ int main( int argc, char *argv[] ) {
                     }
         }
     }
-	
+	/*
     for (int j = 0; j < 32; j++) {
         for (int i = 0; i < largestSubjectLength; i++) {
             switch(subjectSequences[j][i])
@@ -150,35 +146,36 @@ int main( int argc, char *argv[] ) {
             }
         }
     }
-	
+	*/
 	cudaMemcpyToSymbol(constQuery, querySequence, sizeof(char)*strlen(querySequence));
 
     // Call GPU
-    dim3 block(32, 1);
+    dim3 block(1, 32);
     dim3 grid(1, 1);
  
     f_scoreSequence<<<grid, block>>>(d_input_subject, d_output_scoring, largestSubjectLength, strlen(querySequence));
 
     cudaDeviceSynchronize();
 
-    // Print results
-    int subject = 0;
-    string seqA = querySequence;
-    string seqB = subjectSequences[subject];
+    // Print results for 1 subject query
+    for (int subject = 0; subject < 32; subject++) {
+        char* seqA = querySequence;
+        char* seqB = subjectSequences[subject];
 
-    cout << "    ";
-    for (int j = 0; j < (seqB.length() + 1); j++) {
-        cout << seqB[j] << " ";
-    }
-    cout << endl;
-
-    for (int i = 0; i < (seqA.length() + 1); i++) {
-        if (i != 0) cout << seqA[i - 1] << " ";
-        else cout << "  ";
-        for (int j = 0; j < (seqB.length() + 1); j++) {
-            cout << d_output_scoring[i * (seqB.length() + 1) + j] << " ";
+        cout << "    ";
+        for (int j = 0; j < (strlen(seqB) + 1); j++) {
+            cout << seqB[j] << " ";
         }
         cout << endl;
+
+        for (int i = 0; i < (strlen(seqA) + 1); i++) {
+            if (i != 0) cout << seqA[i - 1] << " ";
+            else cout << "  ";
+            for (int j = 0; j < (strlen(seqB) + 1); j++) {
+                cout << d_output_scoring[((largestSubjectLength + 1) * (strlen(querySequence) + 1) * subject) + (i * (strlen(seqB) + 1)) + j] << " ";
+            }
+            cout << endl;
+        }
     }
 
     double time_end = getTimeStamp();
