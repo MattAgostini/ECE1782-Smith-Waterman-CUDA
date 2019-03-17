@@ -6,7 +6,7 @@
 #
 #
 CC=nvcc
-CFLAGS=-ccbin clang++-3.8 -arch=sm_52
+CFLAGS=-ccbin clang++-3.8 -arch=sm_52 -lboost_program_options
 TARGETPATH = ./bin
 SOURCEPATH = ./src
 MKDIR_P = mkdir -p

@@ -6,6 +6,7 @@
 #include <limits>
 #include <sstream>
 #include <algorithm>
+#include "boost/program_options.hpp"
 
 #define SEQ_EQUAL 3
 #define SEQ_DIFF -3
@@ -25,6 +26,7 @@
 #define T 4
 
 using namespace std;
+namespace po = boost::program_options;
 
 __constant__ float constQuery[1024];
 
@@ -103,6 +105,20 @@ public:
 
 int main( int argc, char *argv[] ) {
     double time_start = getTimeStamp();
+
+    po::options_description desc("Smith-Waterman CUDA Usage");
+    desc.add_options()
+        ("help", "Display this help message")
+        ("query", po::value<string>(),"Path to query file")
+        ("db", po::value<string>(), "Path to database file");
+
+    po::variables_map vm;
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    po::notify(vm);
+
+    if(vm.count("help")){
+        std::cout << desc;
+    }
 
     // get program arguments
     if (argc != 3) {
