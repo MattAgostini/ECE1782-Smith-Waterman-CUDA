@@ -73,11 +73,11 @@ private:
     stringstream header;
     string buffer;
 public:
-    ParsedFASTA(const char *filepath, bool _isQuery) {
+    ParsedFASTA(std::string filepath, bool _isQuery) {
         isQuery = _isQuery;
 
         ifstream filestream;
-        filestream.open(filepath);
+        filestream.open(filepath.c_str());
         filestream.ignore(numeric_limits<streamsize>::max(), '\n');
 
         stringstream fasta_stream;
@@ -107,28 +107,28 @@ int main( int argc, char *argv[] ) {
     double time_start = getTimeStamp();
 
     po::options_description desc("Smith-Waterman CUDA Usage");
-    desc.add_options()
-        ("help", "Display this help message")
-        ("query", po::value<string>(),"Path to query file")
-        ("db", po::value<string>(), "Path to database file");
-
     po::variables_map vm;
-    po::store(po::parse_command_line(argc, argv, desc), vm);
-    po::notify(vm);
+    
+    try {
+        desc.add_options()
+            ("help", "Display this help message")
+            ("query", po::value<std::string>()->required(),"Path to query file (required)")
+            ("db", po::value<std::string>()->required(), "Path to database file (required)");
 
-    if(vm.count("help")){
-        std::cout << desc;
+        po::store(po::parse_command_line(argc, argv, desc), vm);
+        po::notify(vm);
+
+        if(vm.count("help") || argc <= 1){
+            cout << desc;
+            return 1;
+        }
+    } catch (const po::required_option & e) {
+        cout << desc;
+        return 1;
     }
 
-    // get program arguments
-    if (argc != 3) {
-        printf("Error: wrong number of args\n");
-        exit(1);
-    }
-
-    //string querySequence = argv[1];
-
-    ParsedFASTA query(argv[1], true);
+    std::string querypath = vm["query"].as<std::string>();
+    ParsedFASTA query(querypath, true);
     cout << "Input buffer:";
     query.print_buffer();
     cout << endl;
@@ -136,7 +136,8 @@ int main( int argc, char *argv[] ) {
 
     // Parse query file
     ifstream datafile;
-    datafile.open(argv[2]);
+    std::string datapath = vm["db"].as<std::string>();
+    datafile.open(datapath.c_str());
 
     int subjectLengthSum = 0;
 
