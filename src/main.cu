@@ -236,7 +236,7 @@ int main( int argc, char *argv[] ) {
     double time_end = getTimeStamp();
     double seconds_elapsed = time_end - time_start;
 
-    std::cout << std::string(80, '=') << std::endl;
+    cout << std::string(80, '=') << endl;
     cout << "METRICS:" << endl;
     cout << "Query length: " << querySequence.length() << " chars." << endl;
     cout << "Sum of DB length: " << subjectLengthSum << " chars." << endl;
