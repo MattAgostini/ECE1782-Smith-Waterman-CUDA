@@ -151,18 +151,21 @@ int main( int argc, char *argv[] ) {
     int count = 0;
     int largestSubjectLength = 0;
     int numSubjects = 0;
+    bool isFirst = true;
     while (getline(databaseFile, temp) && count < 32) {
         
         // This line denotes the start of a sequence
         if (temp[0] == '>') {
+            if (!isFirst) {
+                subjectSequences.push_back(subjectSequence);
+                subjectLengthSum += subjectSequence.length();
+            }
+            isFirst = false;
+            
             //cout << subjectSequence << endl;
             subjectSequence = "";
-            
             //count++;
             numSubjects++;
-            
-            subjectSequences.push_back(subjectSequence);
-            subjectLengthSum += subjectSequence.length();
         }
         else {
             subjectSequence += temp;
