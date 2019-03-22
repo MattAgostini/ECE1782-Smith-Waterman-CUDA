@@ -21,6 +21,8 @@
 #define MAX_BLOCK_SIZE 1024
 #define MAX_GRID_DIM 65535
 
+#define LENGTH_THRESHOLD 50
+
 #define A 1
 #define G 2
 #define C 3
@@ -148,24 +150,26 @@ int main( int argc, char *argv[] ) {
     string temp;
     vector<string> subjectSequences;
     string subjectSequence = "";
-    int count = 0;
     int largestSubjectLength = 0;
     int numSubjects = 0;
     bool isFirst = true;
-    while (getline(databaseFile, temp) && count < 32) {
+    while (getline(databaseFile, temp)) {
         
         // This line denotes the start of a sequence
         if (temp[0] == '>') {
             if (!isFirst) {
-                subjectSequences.push_back(subjectSequence);
-                subjectLengthSum += subjectSequence.length();
+                if (subjectSequence.length() <= LENGTH_THRESHOLD) {
+                    subjectSequences.push_back(subjectSequence);
+                    subjectLengthSum += subjectSequence.length();
+                    largestSubjectLength = max(largestSubjectLength, (int)subjectSequence.length());
+                    
+                    numSubjects++;
+                }
             }
             isFirst = false;
             
             //cout << subjectSequence << endl;
             subjectSequence = "";
-            //count++;
-            numSubjects++;
         }
         else {
             subjectSequence += temp;
@@ -173,10 +177,19 @@ int main( int argc, char *argv[] ) {
         
     }
     // Adding last sequence 
-    subjectSequences.push_back(subjectSequence);
-    subjectLengthSum += subjectSequence.length();
+    if (subjectSequence.length() <= LENGTH_THRESHOLD) {
+        subjectSequences.push_back(subjectSequence);
+        subjectLengthSum += subjectSequence.length();
+        largestSubjectLength = max(largestSubjectLength, (int)subjectSequence.length());
+        
+        numSubjects++;
+    }
 
     databaseFile.close();
+    
+    cout << largestSubjectLength << endl;
+    cout << numSubjects << endl;
+    cout << subjectLengthSum << endl;
 
     // alloc memory on GPU
     float* d_input_query = new float[querySequence.length()];
