@@ -264,7 +264,7 @@ int main( int argc, char *argv[] ) {
     
     // Print results for 1 subject query
     for (int subject = 0; subject < numSubjects; subject++) {
-        //cout << d_output_max_score[subject] << endl;
+        cout << d_output_max_score[subject] << endl;
     }
     
 
