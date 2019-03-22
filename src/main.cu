@@ -147,34 +147,16 @@ int main( int argc, char *argv[] ) {
 
     string temp;
     vector<string> subjectSequences;
+    string subjectSequence = "";
     int count = 0;
     int largestSubjectLength = 0;
     int numSubjects = 0;
-    while (databaseFile >> temp && count < 32) {
+    while (getline(databaseFile, temp) && count < 32) {
         
-        if (temp.find("SQ") != string::npos) {
-            
-            databaseFile >> temp; // Skip "SEQUENCE"
-            
-            int length = 0;
-            databaseFile >> length; // Extract sequence length
-            largestSubjectLength = max(largestSubjectLength, length);
-            
-            // Skipping rest of line
-            databaseFile >> temp;
-            databaseFile >> temp;
-            databaseFile >> temp;
-            databaseFile >> temp;
-            databaseFile >> temp;
-            
-            // Start processing sequence
-            string subjectSequence = "";
-            for (int i = 0; i < length; i += 10) {
-                databaseFile >> temp;
-                subjectSequence += temp;
-            }
-            
+        // This line denotes the start of a sequence
+        if (temp[0] == '>') {
             //cout << subjectSequence << endl;
+            subjectSequence = "";
             
             //count++;
             numSubjects++;
@@ -182,7 +164,14 @@ int main( int argc, char *argv[] ) {
             subjectSequences.push_back(subjectSequence);
             subjectLengthSum += subjectSequence.length();
         }
+        else {
+            subjectSequence += temp;
+        }
+        
     }
+    // Adding last sequence 
+    subjectSequences.push_back(subjectSequence);
+    subjectLengthSum += subjectSequence.length();
 
     databaseFile.close();
 
@@ -275,7 +264,7 @@ int main( int argc, char *argv[] ) {
     
     // Print results for 1 subject query
     for (int subject = 0; subject < numSubjects; subject++) {
-        cout << d_output_max_score[subject] << endl;
+        //cout << d_output_max_score[subject] << endl;
     }
     
 
