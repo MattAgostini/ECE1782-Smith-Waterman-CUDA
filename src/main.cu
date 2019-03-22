@@ -4,6 +4,7 @@
 #include <fstream>
 #include <vector>
 #include <limits>
+#include <math.h>
 #include <sstream>
 #include <algorithm>
 #include "boost/program_options.hpp"
@@ -38,32 +39,35 @@ double getTimeStamp() {
 }
 
 // Kernel function for computing the scoring matrix of a sequence
-__global__ void f_scoreSequence(float* subject, float* scoringMatrix, int width, int height) {
+__global__ void f_scoreSequence(float* subject, float* scoringMatrix, float* maxScoreList, int width, int height, int numSubjects) {
     int substitutionMatrix[2] = {SEQ_EQUAL, SEQ_DIFF};
 
-    register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
+    //register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
     register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
 
     float maxScore = 0;
-    for (int i = 1; i < (height + 1); i++) {
-        for (int j = 1; j < (width + 1); j++) {
-            float score = 0;
+        if (yIndex < numSubjects) {
+        for (int i = 1; i < (height + 1); i++) {
+            for (int j = 1; j < (width + 1); j++) {
+                float score = 0;
 
-            score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + (i * (width + 1)) + j - 1] - GAP_PENALTY);
-            score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + ((i - 1) * (width + 1)) + j] - GAP_PENALTY);
+                score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + (i * (width + 1)) + j - 1] - GAP_PENALTY);
+                score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + ((i - 1) * (width + 1)) + j] - GAP_PENALTY);
 
-            int similarityScore = 0;
+                int similarityScore = 0;
 
-            // Just index scoring matrix from shared/constant memory in the future
-            if (constQuery[i - 1] == subject[width*yIndex + j - 1]) similarityScore = substitutionMatrix[0];
-            else similarityScore = substitutionMatrix[1];
+                // Just index scoring matrix from shared/constant memory in the future
+                if (constQuery[i - 1] == subject[width*yIndex + j - 1]) similarityScore = substitutionMatrix[0];
+                else similarityScore = substitutionMatrix[1];
 
-            score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + ((i - 1) * (width + 1)) + j - 1] + similarityScore);
+                score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + ((i - 1) * (width + 1)) + j - 1] + similarityScore);
 
-            maxScore = max(maxScore, score);
+                maxScore = max(maxScore, score);
 
-            scoringMatrix[(width + 1)*(height + 1)*yIndex + (i * (width + 1)) + j] = score;
+                scoringMatrix[(width + 1)*(height + 1)*yIndex + (i * (width + 1)) + j] = score;
+            }
         }
+        maxScoreList[yIndex] = maxScore;
     }
 }
 
@@ -134,34 +138,66 @@ int main( int argc, char *argv[] ) {
     cout << endl;
     string querySequence = query.get_buffer();
 
-    // Parse query file
-    ifstream datafile;
+    // Parse database file
+    ifstream databaseFile;
     std::string datapath = vm["db"].as<std::string>();
-    datafile.open(datapath.c_str());
+    databaseFile.open(datapath.c_str());
 
     int subjectLengthSum = 0;
 
     string temp;
     vector<string> subjectSequences;
-    while (datafile >> temp) {
-       subjectSequences.push_back(temp);
-       subjectLengthSum += temp.length();
+    int count = 0;
+    int largestSubjectLength = 0;
+    int numSubjects = 0;
+    while (databaseFile >> temp && count < 32) {
+        
+        if (temp.find("SQ") != string::npos) {
+            
+            databaseFile >> temp; // Skip "SEQUENCE"
+            
+            int length = 0;
+            databaseFile >> length; // Extract sequence length
+            largestSubjectLength = max(largestSubjectLength, length);
+            
+            // Skipping rest of line
+            databaseFile >> temp;
+            databaseFile >> temp;
+            databaseFile >> temp;
+            databaseFile >> temp;
+            databaseFile >> temp;
+            
+            // Start processing sequence
+            string subjectSequence = "";
+            for (int i = 0; i < length; i += 10) {
+                databaseFile >> temp;
+                subjectSequence += temp;
+            }
+            
+            //cout << subjectSequence << endl;
+            
+            //count++;
+            numSubjects++;
+            
+            subjectSequences.push_back(subjectSequence);
+            subjectLengthSum += subjectSequence.length();
+        }
     }
 
-    // Just do the first 32 elements for a test
-    int largestSubjectLength = subjectSequences[31].length();
-
-    datafile.close();
+    databaseFile.close();
 
     // alloc memory on GPU
     float* d_input_query = new float[querySequence.length()];
     memset(d_input_query, 0, sizeof(float) * querySequence.length());
 
     float* d_input_subject;
-    cudaMallocManaged((void**) &d_input_subject, (largestSubjectLength * 32) * sizeof(float));
+    cudaMallocManaged((void**) &d_input_subject, (largestSubjectLength * numSubjects) * sizeof(float));
 
     float* d_output_scoring;
-    cudaMallocManaged((void**) &d_output_scoring, ((querySequence.length() + 1) * (largestSubjectLength + 1) * 32) * sizeof(float));
+    cudaMallocManaged((void**) &d_output_scoring, ((querySequence.length() + 1) * (largestSubjectLength + 1) * numSubjects) * sizeof(float));
+    
+    float* d_output_max_score;
+    cudaMallocManaged((void**) &d_output_max_score, numSubjects * sizeof(float));
 
     // Convert string to float representation (can't really use strings on the GPU)
     for (int i = 0; i < querySequence.length();i++) { // Pad to nearest 8 eventually here
@@ -182,7 +218,7 @@ int main( int argc, char *argv[] ) {
         }
     }
 
-    for (int i = 0; i < 32; i++) {
+    for (int i = 0; i < numSubjects; i++) {
         for (int j = 0; j < largestSubjectLength; j++) { // Will need to pad here
             switch(subjectSequences[i][j])
             {
@@ -204,16 +240,19 @@ int main( int argc, char *argv[] ) {
 
     cudaMemcpyToSymbol(constQuery, d_input_query, sizeof(float)*querySequence.length());
 
+    int grid_y_dim = ceil(numSubjects / 32.0);
+    
     // Call GPU
     dim3 block(1, 32);
-    dim3 grid(1, 1);
-
-    f_scoreSequence<<<grid, block>>>(d_input_subject, d_output_scoring, largestSubjectLength, querySequence.length());
+    dim3 grid(1, grid_y_dim);
+    
+    f_scoreSequence<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, largestSubjectLength, querySequence.length(), numSubjects);
 
     cudaDeviceSynchronize();
 
+    /*
     // Print results for 1 subject query
-    for (int subject = 0; subject < 32; subject++) {
+    for (int subject = 0; subject < numSubjects; subject++) {
         string seqA = querySequence;
         string seqB = subjectSequences[subject];
 
@@ -232,6 +271,13 @@ int main( int argc, char *argv[] ) {
             cout << endl;
         }
     }
+    */
+    
+    // Print results for 1 subject query
+    for (int subject = 0; subject < numSubjects; subject++) {
+        cout << d_output_max_score[subject] << endl;
+    }
+    
 
     double time_end = getTimeStamp();
     double seconds_elapsed = time_end - time_start;
@@ -248,5 +294,6 @@ int main( int argc, char *argv[] ) {
     cudaFree(d_input_query);
     cudaFree(d_input_subject);
     cudaFree(d_output_scoring);
+    cudaFree(d_output_max_score);
     cudaDeviceReset();
 }
