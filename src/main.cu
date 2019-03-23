@@ -327,6 +327,8 @@ int main( int argc, char *argv[] ) {
     cout << "Performance: " << 1E-9 * (querySequence.length() * subjectLengthSum)
             / seconds_elapsed << " GCUPS." << endl;
 
+    delete[] d_input_query;
+
     // Free device memory
     cudaFree(d_input_query);
     cudaFree(d_input_subject);
