@@ -7,6 +7,8 @@
 #include <math.h>
 #include <sstream>
 #include <algorithm>
+#include <map>
+#include <set>
 #include "boost/program_options.hpp"
 
 #define SEQ_EQUAL 3
@@ -32,6 +34,11 @@ using namespace std;
 namespace po = boost::program_options;
 
 __constant__ float constQuery[1024];
+
+struct subject_sequence {
+    int id;
+    string sequence;
+};
 
 // Time stamp function
 double getTimeStamp() {
@@ -148,17 +155,30 @@ int main( int argc, char *argv[] ) {
     int subjectLengthSum = 0;
 
     string temp;
+
+    // key is sequence length, value is a vector of subject_sequence struct
+    map<int, vector<subject_sequence> > parsedDB;
+
     vector<string> subjectSequences;
     string subjectSequence = "";
     int largestSubjectLength = 0;
     int numSubjects = 0;
     bool isFirst = true;
+
+    subject_sequence tmp;
+
+    int _id = 0;
+
     while (getline(databaseFile, temp)) {
         
         // This line denotes the start of a sequence
         if (temp[0] == '>') {
             if (!isFirst) {
                 if (subjectSequence.length() <= LENGTH_THRESHOLD) {
+                    tmp.id = _id++;
+                    tmp.sequence = subjectSequence;
+                    parsedDB[subjectSequence.length()].push_back(tmp);
+
                     subjectSequences.push_back(subjectSequence);
                     subjectLengthSum += subjectSequence.length();
                     largestSubjectLength = max(largestSubjectLength, (int)subjectSequence.length());
@@ -178,6 +198,10 @@ int main( int argc, char *argv[] ) {
     }
     // Adding last sequence 
     if (subjectSequence.length() <= LENGTH_THRESHOLD) {
+        tmp.id = _id++;
+        tmp.sequence = subjectSequence;
+        parsedDB[subjectSequence.length()].push_back(tmp);
+
         subjectSequences.push_back(subjectSequence);
         subjectLengthSum += subjectSequence.length();
         largestSubjectLength = max(largestSubjectLength, (int)subjectSequence.length());
@@ -185,8 +209,16 @@ int main( int argc, char *argv[] ) {
         numSubjects++;
     }
 
+
     databaseFile.close();
-    
+
+    for (map<int, vector<subject_sequence> >::iterator it = parsedDB.begin(); it != parsedDB.end(); ++it) {
+        cout << it->first 
+             << ":"
+             << it->second.size()
+             << endl;
+    }
+
     cout << largestSubjectLength << endl;
     cout << numSubjects << endl;
     cout << subjectLengthSum << endl;
