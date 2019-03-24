@@ -23,7 +23,7 @@
 #define MAX_BLOCK_SIZE 1024
 #define MAX_GRID_DIM 65535
 
-#define LENGTH_THRESHOLD 50
+#define LENGTH_THRESHOLD 100
 
 #define A 1
 #define G 2
@@ -91,14 +91,16 @@ public:
 
         ifstream filestream;
         filestream.open(filepath.c_str());
-        filestream.ignore(numeric_limits<streamsize>::max(), '\n');
+        //filestream.ignore(numeric_limits<streamsize>::max(), '\n');
 
-        stringstream fasta_stream;
-        fasta_stream << filestream.rdbuf();
+        //stringstream fasta_stream;
+        //fasta_stream << filestream.rdbuf();
         buffer.reserve(10000); // optimization -- reserve some arbitrary length
         string tmp;
-        while (fasta_stream) {
-            fasta_stream >> tmp;
+        getline(filestream, tmp); // Skip first line
+        while (getline(filestream, tmp)) {
+            //fasta_stream >> tmp;
+            cout << tmp << endl;
             buffer.append(tmp);
         }
         filestream.close();
@@ -312,9 +314,8 @@ int main( int argc, char *argv[] ) {
     
     // Print results for 1 subject query
     for (int subject = 0; subject < numSubjects; subject++) {
-        cout << d_output_max_score[subject] << endl;
+        //cout << d_output_max_score[subject] << endl;
     }
-    
 
     double time_end = getTimeStamp();
     double seconds_elapsed = time_end - time_start;
