@@ -1,15 +1,9 @@
 #include <sys/time.h>
-#include <stdio.h>
 #include <iostream>
-#include <fstream>
-#include <vector>
-#include <limits>
-#include <math.h>
-#include <sstream>
 #include <algorithm>
-#include <map>
-#include <set>
 #include "boost/program_options.hpp"
+
+#include "FASTAParsers.h"
 
 #define SEQ_EQUAL 3
 #define SEQ_DIFF -3
@@ -23,7 +17,6 @@
 #define MAX_BLOCK_SIZE 1024
 #define MAX_GRID_DIM 65535
 
-#define LENGTH_THRESHOLD 500
 
 #define A 1
 #define G 2
@@ -34,11 +27,6 @@ using namespace std;
 namespace po = boost::program_options;
 
 __constant__ float constQuery[1024];
-
-struct subject_sequence {
-    int id;
-    string sequence;
-};
 
 // Time stamp function
 double getTimeStamp() {
@@ -118,43 +106,6 @@ __global__ void f_scoreSequenceCoalesced(float* subject, float* scoringMatrix, f
     }
 }
 
-class ParsedFASTA {
-private:
-    bool isQuery;
-    stringstream header;
-    string buffer;
-public:
-    ParsedFASTA(std::string filepath, bool _isQuery) {
-        isQuery = _isQuery;
-
-        ifstream filestream;
-        filestream.open(filepath.c_str());
-        //filestream.ignore(numeric_limits<streamsize>::max(), '\n');
-
-        //stringstream fasta_stream;
-        //fasta_stream << filestream.rdbuf();
-        buffer.reserve(10000); // optimization -- reserve some arbitrary length
-        string tmp;
-        getline(filestream, tmp); // Skip first line
-        while (getline(filestream, tmp)) {
-            //fasta_stream >> tmp;
-            buffer.append(tmp);
-        }
-        filestream.close();
-    };
-
-    ~ParsedFASTA() {
-    };
-
-    void print_buffer() {
-        cout << buffer << endl;
-    };
-
-    string get_buffer() {
-        return buffer;
-    };
-};
-
 int main( int argc, char *argv[] ) {
     double time_start = getTimeStamp();
 
@@ -180,76 +131,16 @@ int main( int argc, char *argv[] ) {
     }
 
     std::string querypath = vm["query"].as<std::string>();
-    ParsedFASTA query(querypath, true);
+    FASTAQuery query(querypath, true);
     cout << "Input buffer:";
     query.print_buffer();
     cout << endl;
     string querySequence = query.get_buffer();
 
     // Parse database file
-    ifstream databaseFile;
     std::string datapath = vm["db"].as<std::string>();
-    databaseFile.open(datapath.c_str());
+    FASTADatabase db(datapath);
 
-    int subjectLengthSum = 0;
-
-    string temp;
-
-    // key is sequence length, value is a vector of subject_sequence struct
-    map<int, vector<subject_sequence> > parsedDB;
-
-    vector<string> subjectSequences;
-    string subjectSequence = "";
-    int largestSubjectLength = 0;
-    int numSubjects = 0;
-    bool isFirst = true;
-
-    subject_sequence tmp;
-
-    int _id = 0;
-
-    while (getline(databaseFile, temp)) {
-        
-        // This line denotes the start of a sequence
-        if (temp[0] == '>') {
-            if (!isFirst) {
-                if (subjectSequence.length() <= LENGTH_THRESHOLD) {
-                    tmp.id = _id++;
-                    tmp.sequence = subjectSequence;
-                    parsedDB[subjectSequence.length()].push_back(tmp);
-
-                    subjectSequences.push_back(subjectSequence);
-                    subjectLengthSum += subjectSequence.length();
-                    largestSubjectLength = max(largestSubjectLength, (int)subjectSequence.length());
-                    
-                    numSubjects++;
-                }
-            }
-            isFirst = false;
-            
-            //cout << subjectSequence << endl;
-            subjectSequence = "";
-        }
-        else {
-            subjectSequence += temp;
-        }
-        
-    }
-    // Adding last sequence 
-    if (subjectSequence.length() <= LENGTH_THRESHOLD) {
-        tmp.id = _id++;
-        tmp.sequence = subjectSequence;
-        parsedDB[subjectSequence.length()].push_back(tmp);
-
-        subjectSequences.push_back(subjectSequence);
-        subjectLengthSum += subjectSequence.length();
-        largestSubjectLength = max(largestSubjectLength, (int)subjectSequence.length());
-        
-        numSubjects++;
-    }
-
-
-    databaseFile.close();
 
     /*
     for (map<int, vector<subject_sequence> >::iterator it = parsedDB.begin(); it != parsedDB.end(); ++it) {
@@ -259,22 +150,23 @@ int main( int argc, char *argv[] ) {
              << endl;
     } */
     
-    cout << "Largest subject: " << largestSubjectLength << endl;
-    cout << "Num subjects: " << numSubjects << endl;
-    cout << "Accumulated db length: " << subjectLengthSum << endl;
+    cout << "Largest subject: " << db.largestSubjectLength << endl;
+    cout << "Num subjects: " << db.numSubjects << endl;
+    cout << "Accumulated db length: " << db.subjectLengthSum << endl;
 
     // alloc memory on GPU
     float* d_input_query = new float[querySequence.length()];
     memset(d_input_query, 0, sizeof(float) * querySequence.length());
 
     float* d_input_subject;
-    cudaMallocManaged((void**) &d_input_subject, (largestSubjectLength * numSubjects) * sizeof(float));
+    cudaMallocManaged((void**) &d_input_subject, (db.largestSubjectLength * db.numSubjects) * sizeof(float));
 
     float* d_output_scoring;
-    cudaMallocManaged((void**) &d_output_scoring, ((querySequence.length() + 1) * (largestSubjectLength + 1) * numSubjects) * sizeof(float));
+    cudaMallocManaged((void**) &d_output_scoring, ((querySequence.length() + 1) *
+                (db.largestSubjectLength + 1) * db.numSubjects) * sizeof(float));
     
     float* d_output_max_score;
-    cudaMallocManaged((void**) &d_output_max_score, numSubjects * sizeof(float));
+    cudaMallocManaged((void**) &d_output_max_score, db.numSubjects * sizeof(float));
 
     // Convert string to float representation (can't really use strings on the GPU)
     for (int i = 0; i < querySequence.length();i++) { // Pad to nearest 8 eventually here
@@ -295,21 +187,21 @@ int main( int argc, char *argv[] ) {
         }
     }
 
-    for (int i = 0; i < numSubjects; i++) {
-        for (int j = 0; j < largestSubjectLength; j++) { // Will need to pad here
-            if (j < subjectSequences[i].length()) {
-                switch(subjectSequences[i][j])
+    for (int i = 0; i < db.numSubjects; i++) {
+        for (int j = 0; j < db.largestSubjectLength; j++) { // Will need to pad here
+            if (j < db.subjectSequences[i].length()) {
+                switch(db.subjectSequences[i][j])
                 {
-                    case 'A': { d_input_subject[i*largestSubjectLength + j] = A;
+                    case 'A': { d_input_subject[i*db.largestSubjectLength + j] = A;
                                 break;
                             }
-                    case 'G': { d_input_subject[i*largestSubjectLength + j] = G;
+                    case 'G': { d_input_subject[i*db.largestSubjectLength + j] = G;
                                 break;
                             }
-                    case 'C': { d_input_subject[i*largestSubjectLength + j] = C;
+                    case 'C': { d_input_subject[i*db.largestSubjectLength + j] = C;
                                 break;
                             }
-                    case 'T': { d_input_subject[i*largestSubjectLength + j] = T;
+                    case 'T': { d_input_subject[i*db.largestSubjectLength + j] = T;
                                 break;
                             }
                 }
@@ -319,13 +211,13 @@ int main( int argc, char *argv[] ) {
 
     cudaMemcpyToSymbol(constQuery, d_input_query, sizeof(float)*querySequence.length());
 
-    int grid_y_dim = ceil(numSubjects / 32.0);
+    int grid_y_dim = ceil(db.numSubjects / 32.0);
     
     // Call GPU
     dim3 block(1, 32);
     dim3 grid(1, grid_y_dim);
     
-    f_scoreSequence<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, largestSubjectLength, querySequence.length(), numSubjects);
+    f_scoreSequence<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, db.largestSubjectLength, querySequence.length(), db.numSubjects);
 
     cudaDeviceSynchronize();
 
@@ -353,7 +245,7 @@ int main( int argc, char *argv[] ) {
     */
     
     // Print results for 1 subject query
-    for (int subject = 0; subject < numSubjects; subject++) {
+    for (int subject = 0; subject < db.numSubjects; subject++) {
         //cout << d_output_max_score[subject] << endl;
     }
 
@@ -363,9 +255,9 @@ int main( int argc, char *argv[] ) {
     cout << std::string(80, '=') << endl;
     cout << "METRICS:" << endl;
     cout << "Query length: " << querySequence.length() << " chars." << endl;
-    cout << "Sum of DB length: " << subjectLengthSum << " chars." << endl;
+    cout << "Sum of DB length: " << db.subjectLengthSum << " chars." << endl;
     cout << "Time elapsed: " << seconds_elapsed << " seconds." << endl;
-    cout << "Performance: " << 1E-9 * (querySequence.length() * subjectLengthSum)
+    cout << "Performance: " << 1E-9 * (querySequence.length() * db.subjectLengthSum)
             / seconds_elapsed << " GCUPS." << endl;
 
     delete[] d_input_query;
