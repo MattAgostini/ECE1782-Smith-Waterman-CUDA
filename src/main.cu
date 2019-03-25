@@ -23,7 +23,7 @@
 #define MAX_BLOCK_SIZE 1024
 #define MAX_GRID_DIM 65535
 
-#define LENGTH_THRESHOLD 100
+#define LENGTH_THRESHOLD 500
 
 #define A 1
 #define G 2
@@ -48,7 +48,9 @@ double getTimeStamp() {
 }
 
 // Kernel function for computing the scoring matrix of a sequence
-__global__ void f_scoreSequence(float* subject, float* scoringMatrix, float* maxScoreList, int width, int height, int numSubjects) {
+__global__ void f_scoreSequence(float* subject, float* scoringMatrix, float* maxScoreList, 
+                int width /*largestSubjectLength*/, int height /*querySequence.length()*/, int numSubjects) {
+    
     int substitutionMatrix[2] = {SEQ_EQUAL, SEQ_DIFF};
 
     //register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
@@ -65,7 +67,6 @@ __global__ void f_scoreSequence(float* subject, float* scoringMatrix, float* max
 
                 int similarityScore = 0;
 
-                // Just index scoring matrix from shared/constant memory in the future
                 if (constQuery[i - 1] == subject[width*yIndex + j - 1]) similarityScore = substitutionMatrix[0];
                 else similarityScore = substitutionMatrix[1];
 
@@ -74,6 +75,43 @@ __global__ void f_scoreSequence(float* subject, float* scoringMatrix, float* max
                 maxScore = max(maxScore, score);
 
                 scoringMatrix[(width + 1)*(height + 1)*yIndex + (i * (width + 1)) + j] = score;
+            }
+        }
+        maxScoreList[yIndex] = maxScore;
+    }
+}
+
+// Kernel function for computing the scoring matrix of a sequence
+__global__ void f_scoreSequenceCoalesced(float* subject, float* scoringMatrix, float* maxScoreList, 
+                int width /*largestSubjectLength*/, int height /*querySequence.length()*/, int numSubjects) {
+    
+    int substitutionMatrix[2] = {SEQ_EQUAL, SEQ_DIFF};
+
+    //register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
+    register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
+    
+    // Use map for different offsets (Change the width)
+    int blockOffset = (blockIdx.y * blockDim.y)*(width + 1)*(height + 1);
+
+    float maxScore = 0;
+        if (yIndex < numSubjects) {
+        for (int i = 1; i < (height + 1); i++) {
+            for (int j = 1; j < (width + 1); j++) {
+                float score = 0;
+
+                score = max(score, scoringMatrix[blockOffset + (threadIdx.y + ((j - 1) * blockDim.y * (height + 1))) + (blockDim.y * i)] - GAP_PENALTY);
+                score = max(score, scoringMatrix[blockOffset + (threadIdx.y + (j * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))] - GAP_PENALTY);
+
+                int similarityScore = 0;
+
+                if (constQuery[i - 1] == subject[threadIdx.y + ((j - 1) * blockDim.y)]) similarityScore = substitutionMatrix[0];
+                else similarityScore = substitutionMatrix[1];
+
+                score = max(score, scoringMatrix[blockOffset + (threadIdx.y + ((j - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))] + similarityScore);
+
+                maxScore = max(maxScore, score);
+                
+                scoringMatrix[blockOffset + (threadIdx.y + (j * blockDim.y * (height + 1))) + (blockDim.y * i)] = score;
             }
         }
         maxScoreList[yIndex] = maxScore;
@@ -100,7 +138,6 @@ public:
         getline(filestream, tmp); // Skip first line
         while (getline(filestream, tmp)) {
             //fasta_stream >> tmp;
-            cout << tmp << endl;
             buffer.append(tmp);
         }
         filestream.close();
@@ -214,16 +251,17 @@ int main( int argc, char *argv[] ) {
 
     databaseFile.close();
 
+    /*
     for (map<int, vector<subject_sequence> >::iterator it = parsedDB.begin(); it != parsedDB.end(); ++it) {
         cout << it->first 
              << ":"
              << it->second.size()
              << endl;
-    }
-
-    cout << largestSubjectLength << endl;
-    cout << numSubjects << endl;
-    cout << subjectLengthSum << endl;
+    } */
+    
+    cout << "Largest subject: " << largestSubjectLength << endl;
+    cout << "Num subjects: " << numSubjects << endl;
+    cout << "Accumulated db length: " << subjectLengthSum << endl;
 
     // alloc memory on GPU
     float* d_input_query = new float[querySequence.length()];
@@ -259,20 +297,22 @@ int main( int argc, char *argv[] ) {
 
     for (int i = 0; i < numSubjects; i++) {
         for (int j = 0; j < largestSubjectLength; j++) { // Will need to pad here
-            switch(subjectSequences[i][j])
-            {
-                case 'A': { d_input_subject[i*largestSubjectLength + j] = A;
-                            break;
-                        }
-                case 'G': { d_input_subject[i*largestSubjectLength + j] = G;
-                            break;
-                        }
-                case 'C': { d_input_subject[i*largestSubjectLength + j] = C;
-                            break;
-                        }
-                case 'T': { d_input_subject[i*largestSubjectLength + j] = T;
-                            break;
-                        }
+            if (j < subjectSequences[i].length()) {
+                switch(subjectSequences[i][j])
+                {
+                    case 'A': { d_input_subject[i*largestSubjectLength + j] = A;
+                                break;
+                            }
+                    case 'G': { d_input_subject[i*largestSubjectLength + j] = G;
+                                break;
+                            }
+                    case 'C': { d_input_subject[i*largestSubjectLength + j] = C;
+                                break;
+                            }
+                    case 'T': { d_input_subject[i*largestSubjectLength + j] = T;
+                                break;
+                            }
+                }
             }
         }
     }
