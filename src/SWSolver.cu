@@ -114,8 +114,6 @@ float convertStringToFloat(char character) {
     return STAR;
 }
 
-
-
 // Kernel function for computing the scoring matrix of a sequence
 __global__ void f_scoreSequence(float* subject, float* scoringMatrix, float* maxScoreList, 
                 int width /*largestSubjectLength*/, int height /*querySequence.length()*/, int numSubjects) {
@@ -282,7 +280,7 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
 	
 	
     for (int subject = 0; subject < db.numSubjects; subject++) {
-		scores.push_back(make_pair(db.subjectSequences[subject].id, d_output_max_score[subject])); // change this
+        scores.push_back(make_pair(db.subjectSequences[subject].id, d_output_max_score[subject])); // change this
     }
 	
     delete[] d_input_query;
@@ -295,6 +293,6 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     cudaFree(d_output_max_score);
     cudaDeviceReset();
 	
-	return scores;
+    return scores;
 }
 
