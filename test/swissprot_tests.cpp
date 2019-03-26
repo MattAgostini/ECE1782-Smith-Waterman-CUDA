@@ -2,41 +2,51 @@
 #define BOOST_TEST_MODULE MyTest
 #include <boost/test/unit_test.hpp>
 #include <string>
+#include <map>
+#include <sstream>
+#include <iostream>
 
 #include "../src/FASTAParsers.h"
 #include "../src/SWSolver.h"
 
-int add( int i, int j ) { return i+j; }
-
-vector<seqid_score> parse_golden_results(std::string filepath) {
+std::map<int, int> parse_golden_results(std::string filepath) {
+	ifstream filestream;
+	filestream.open(filepath.c_str());
 	
+	map<int, int> parsed_results;
+	
+	string tmp;
+	
+	int idx = 0;
+	int score;
+	
+	while (getline(filestream, tmp)) {
+		std::istringstream(tmp) >> score;
+		parsed_results[idx++] = score;
+	}
+	
+	filestream.close();
+	return parsed_results;
 }
 
-BOOST_AUTO_TEST_CASE( my_test )
+BOOST_AUTO_TEST_CASE( P02232 )
 {
-    // seven ways to detect and report the same error:
-    BOOST_CHECK( add( 2,2 ) == 4 );        // #1 continues on error
-
-    BOOST_REQUIRE( add( 2,2 ) == 4 );      // #2 throws on error
-
-    if( add( 2,2 ) != 4 )
-      BOOST_ERROR( "Ouch..." );            // #3 continues on error
-
-    if( add( 2,2 ) != 4 )
-      BOOST_FAIL( "Ouch..." );             // #4 throws on error
-
-    if( add( 2,2 ) != 4 ) throw "Ouch..."; // #5 throws on error
-
-    BOOST_CHECK_MESSAGE( add( 2,2 ) == 4,  // #6 continues on error
-                         "add(..) result: " << add( 2,2 ) );
-
-    
-	
-	FASTAQuery query("../data/queries/P02232.fasta", true);
+    //BOOST_CHECK( add( 2,2 ) == 4 );        // #1 continues on error
+	FASTAQuery query("data/queries/P02232.fasta", true);
 	FASTADatabase db("data/dbs/uniprot_sprot.fasta");
 	
 	std::vector<seqid_score> result = smith_waterman_cuda(query, db);
-	BOOST_CHECK(!result.empty());
+	std::map<int, int> reference_results = parse_golden_results("test/reference/P02232.txt");
+	
+	//std::cout << result[0].first << ":" << result[0].second << std::endl;
+	//query.print_buffer();
+	
+	for (vector<seqid_score>::iterator it = result.begin(); it != result.end(); ++it) {
+		//cout << (*it).first << ":" << (*it).second << endl;
+		BOOST_CHECK( (*it).second == reference_results[(*it).first] );
+	}
 	
 	
+	
+	//std::cout << reference_results[result[0].first] << std::endl;
 }

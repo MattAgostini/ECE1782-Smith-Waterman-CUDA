@@ -52,6 +52,10 @@ int main( int argc, char *argv[] ) {
     FASTADatabase db(datapath);
 
 	vector<seqid_score> result = smith_waterman_cuda(query, db);
+	
+	for (vector<seqid_score>::iterator it = result.begin(); it != result.end(); ++it) {
+		cout << (*it).first << ":" << (*it).second << endl;
+	}
 
     double time_end = getTimeStamp();
     double seconds_elapsed = time_end - time_start;

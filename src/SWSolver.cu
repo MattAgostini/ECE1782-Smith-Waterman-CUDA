@@ -237,8 +237,8 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
 	
     for (int i = 0; i < db.numSubjects; i++) {
         for (int j = 0; j < db.largestSubjectLength; j++) { // Will need to pad here
-            if (j < db.subjectSequences[i].length()) {
-                d_input_subject[i*db.largestSubjectLength + j] = convertStringToFloat(db.subjectSequences[i][j]);
+            if (j < db.subjectSequences[i].sequence.length()) {
+                d_input_subject[i*db.largestSubjectLength + j] = convertStringToFloat(db.subjectSequences[i].sequence[j]);
             }
             else d_input_subject[i*db.largestSubjectLength + j] = STAR;
         }
@@ -282,7 +282,7 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
 	
 	
     for (int subject = 0; subject < db.numSubjects; subject++) {
-		scores.push_back(make_pair(subject, d_output_max_score[subject])); // change this
+		scores.push_back(make_pair(db.subjectSequences[subject].id, d_output_max_score[subject])); // change this
     }
 	
     delete[] d_input_query;

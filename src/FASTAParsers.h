@@ -55,7 +55,7 @@ class FASTADatabase {
 public:
     // key is sequence length, value is a vector of subject_sequence struct
     map<int, vector<subject_sequence> > parsedDB;
-    vector<string> subjectSequences;
+    vector<subject_sequence> subjectSequences;
     int largestSubjectLength;
     int numSubjects;
     int subjectLengthSum;
@@ -80,11 +80,11 @@ public:
             if (temp[0] == '>') {
                 if (!isFirst) {
                     if (subjectSequence.length() <= LENGTH_THRESHOLD) {
-                        tmp.id = _id++;
+                        tmp.id = _id;
                         tmp.sequence = subjectSequence;
                         parsedDB[subjectSequence.length()].push_back(tmp);
 
-                        subjectSequences.push_back(subjectSequence);
+                        subjectSequences.push_back(tmp);
                         subjectLengthSum += subjectSequence.length();
                         largestSubjectLength = max(largestSubjectLength, (int)subjectSequence.length());
                         
@@ -95,6 +95,7 @@ public:
                 
                 //cout << subjectSequence << endl;
                 subjectSequence = "";
+				_id++;
             }
             else {
                 subjectSequence += temp;
@@ -103,11 +104,11 @@ public:
         }
         // Adding last sequence 
         if (subjectSequence.length() <= LENGTH_THRESHOLD) {
-            tmp.id = _id++;
+            tmp.id = _id;
             tmp.sequence = subjectSequence;
             parsedDB[subjectSequence.length()].push_back(tmp);
 
-            subjectSequences.push_back(subjectSequence);
+            subjectSequences.push_back(tmp);
             subjectLengthSum += subjectSequence.length();
             largestSubjectLength = max(largestSubjectLength, (int)subjectSequence.length());
             
