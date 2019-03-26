@@ -239,10 +239,10 @@ int main( int argc, char *argv[] ) {
     memset(d_input_query, 0, sizeof(float) * querySequence.length());
 
     float* d_input_subject;
-    cudaMallocManaged((void**) &d_input_subject, (largestSubjectLength * numSubjects) * sizeof(float));
+    cudaMallocManaged((void**) &d_input_subject, (db.largestSubjectLength * db.numSubjects) * sizeof(float));
     
     // Set up offsets 
-    int grid_y_dim = ceil(numSubjects / BLOCK_Y_DIM);
+    int grid_y_dim = ceil(db.numSubjects / BLOCK_Y_DIM);
     
     float* d_input_offsets;
     cudaMallocManaged((void**) &d_input_offsets, grid_y_dim * sizeof(float));
@@ -277,12 +277,12 @@ int main( int argc, char *argv[] ) {
         }
     }
     */
-    for (int i = 0; i < numSubjects; i++) {
-        for (int j = 0; j < largestSubjectLength; j++) { // Will need to pad here
-            if (j < subjectSequences[i].length()) {
-                d_input_subject[i*largestSubjectLength + j] = convertStringToFloat(subjectSequences[i][j]);
+    for (int i = 0; i < db.numSubjects; i++) {
+        for (int j = 0; j < db.largestSubjectLength; j++) { // Will need to pad here
+            if (j < db.subjectSequences[i].length()) {
+                d_input_subject[i*db.largestSubjectLength + j] = convertStringToFloat(db.subjectSequences[i][j]);
             }
-            else d_input_subject[i*largestSubjectLength + j] = STAR;
+            else d_input_subject[i*db.largestSubjectLength + j] = STAR;
         }
     }
 
@@ -321,7 +321,7 @@ int main( int argc, char *argv[] ) {
     */
     
     // Print results for 1 subject query
-    for (int subject = 0; subject < numSubjects; subject++) {
+    for (int subject = 0; subject < db.numSubjects; subject++) {
         cout << d_output_max_score[subject] << endl;
     }
 
@@ -331,8 +331,8 @@ int main( int argc, char *argv[] ) {
     cout << std::string(80, '=') << endl;
     cout << "METRICS:" << endl;
     cout << "Query length: " << querySequence.length() << " chars." << endl;
-    cout << "Num subjects: " << numSubjects << endl;
-    cout << "Sum of DB length: " << subjectLengthSum << " chars." << endl;
+    cout << "Num subjects: " << db.numSubjects << endl;
+    cout << "Sum of DB length: " << db.subjectLengthSum << " chars." << endl;
     cout << "Time elapsed: " << seconds_elapsed << " seconds." << endl;
     cout << "Performance: " << 1E-9 * (querySequence.length() * db.subjectLengthSum)
             / seconds_elapsed << " GCUPS." << endl;
