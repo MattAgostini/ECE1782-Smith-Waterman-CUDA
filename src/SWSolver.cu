@@ -1,9 +1,8 @@
-#include <sys/time.h>
 #include <iostream>
 #include <algorithm>
-#include "boost/program_options.hpp"
 
 #include "FASTAParsers.h"
+#include "SWSolver.h"
 
 #define SEQ_EQUAL 3
 #define SEQ_DIFF -3
@@ -48,7 +47,7 @@
 #define BLOCK_Y_DIM 32.0
 
 // first is sequence ID, second is max score
-typedef std::pair<int, int> seqid_score;
+
 
 int blosum50[25][25] = {
 //        A  R  N  D  C  Q  E  G  H  I  L  K  M  F  P  S  T  W  Y  V  B  J  Z  X  *
@@ -80,7 +79,6 @@ int blosum50[25][25] = {
 };
 
 using namespace std;
-namespace po = boost::program_options;
 
 __constant__ float constQuery[1024];
 __constant__ int constSubstitutionMatrix[625];
@@ -116,12 +114,7 @@ float convertStringToFloat(char character) {
     return STAR;
 }
 
-// Time stamp function
-double getTimeStamp() {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (double) tv.tv_usec/1000000 + tv.tv_sec;
-}
+
 
 // Kernel function for computing the scoring matrix of a sequence
 __global__ void f_scoreSequence(float* subject, float* scoringMatrix, float* maxScoreList, 
@@ -305,54 +298,3 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
 	return scores;
 }
 
-int main( int argc, char *argv[] ) {
-    double time_start = getTimeStamp();
-
-    po::options_description desc("Smith-Waterman CUDA Usage");
-    po::variables_map vm;
-    
-    try {
-        desc.add_options()
-            ("help", "Display this help message")
-            ("query", po::value<std::string>()->required(),"Path to query file (required)")
-            ("db", po::value<std::string>()->required(), "Path to database file (required)");
-
-        po::store(po::parse_command_line(argc, argv, desc), vm);
-        po::notify(vm);
-
-        if(vm.count("help") || argc <= 1){
-            cout << desc;
-            return 1;
-        }
-    } catch (const po::required_option & e) {
-        cout << desc;
-        return 1;
-    }
-
-    std::string querypath = vm["query"].as<std::string>();
-    FASTAQuery query(querypath, true);
-    cout << "Input buffer:";
-    query.print_buffer();
-    cout << endl;
-	string querySequence = query.get_buffer();
-
-    // Parse database file
-    std::string datapath = vm["db"].as<std::string>();
-    FASTADatabase db(datapath);
-
-	vector<seqid_score> result = smith_waterman_cuda(query, db);
-
-    double time_end = getTimeStamp();
-    double seconds_elapsed = time_end - time_start;
-
-    cout << std::string(80, '=') << endl;
-    cout << "METRICS:" << endl;
-    cout << "Query length: " << querySequence.length() << " chars." << endl;
-    cout << "Num subjects: " << db.numSubjects << endl;
-    cout << "Sum of DB length: " << db.subjectLengthSum << " chars." << endl;
-    cout << "Time elapsed: " << seconds_elapsed << " seconds." << endl;
-    cout << "Performance: " << 1E-9 * (querySequence.length() * db.subjectLengthSum)
-            / seconds_elapsed << " GCUPS." << endl;
-
-
-}

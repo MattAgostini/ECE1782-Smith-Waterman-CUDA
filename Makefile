@@ -9,19 +9,27 @@ CC=nvcc
 CFLAGS=-ccbin clang++-3.8 -arch=sm_52 -lboost_program_options
 TARGETPATH = ./bin
 SOURCEPATH = ./src
+TESTPATH = ./test
 MKDIR_P = mkdir -p
 
 .PHONY: all directories clean
-all: directories $(TARGETPATH)/main $(TARGETPATH)/testchar
+all: directories $(TARGETPATH)/SWSolver.o $(TARGETPATH)/main $(TARGETPATH)/testchar $(TARGETPATH)/swissprot_tests
 
 directories:
 	$(MKDIR_P) $(TARGETPATH)
 
-$(TARGETPATH)/main: $(SOURCEPATH)/main.cu
-	$(CC) -o $(TARGETPATH)/main $(SOURCEPATH)/main.cu $(CFLAGS)
+$(TARGETPATH)/SWSolver.o: $(SOURCEPATH)/SWSolver.cu
+	$(CC) -c $(SOURCEPATH)/SWSolver.cu -o $(TARGETPATH)/SWSolver.o $(CFLAGS)
+	
+$(TARGETPATH)/main: $(SOURCEPATH)/main.cpp
+	$(CC) -o $(TARGETPATH)/main $(SOURCEPATH)/main.cpp $(TARGETPATH)/SWSolver.o $(CFLAGS)
 
 $(TARGETPATH)/testchar: $(SOURCEPATH)/testchar.cu
 	$(CC) -o $(TARGETPATH)/testchar $(SOURCEPATH)/testchar.cu $(CFLAGS)
+
+$(TARGETPATH)/swissprot_tests: $(SOURCEPATH)/SWSolver.cu $(TESTPATH)/swissprot_tests.cpp
+	$(CC) -c $(TESTPATH)/swissprot_tests.cpp -o $(TARGETPATH)/swissprot_tests.o $(CFLAGS)
+	$(CC) -o $(TARGETPATH)/swissprot_tests $(TARGETPATH)/SWSolver.o $(TARGETPATH)/swissprot_tests.o $(CFLAGS) -lboost_unit_test_framework
 
 clean:
 	rm -rf ./bin

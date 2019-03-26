@@ -20,7 +20,6 @@ struct subject_sequence {
 class FASTAQuery {
 private:
     bool isQuery;
-    stringstream header;
     string buffer;
 public:
     FASTAQuery(std::string filepath, bool _isQuery) {
