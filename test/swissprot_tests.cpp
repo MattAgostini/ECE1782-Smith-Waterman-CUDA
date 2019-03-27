@@ -38,7 +38,7 @@ BOOST_AUTO_TEST_CASE( P02232 )
     std::map<int, int> reference_results = parse_golden_results("test/reference/P02232.txt");
     
     for (vector<seqid_score>::iterator it = result.begin(); it != result.end(); ++it) {
-        BOOST_CHECK( (*it).second == reference_results[(*it).first] );
+        BOOST_CHECK_MESSAGE( (*it).second == reference_results[(*it).first], (*it).first << ": Ours: " << (*it).second << " | Theirs: " << reference_results[(*it).first] );
     }
     
     std::cout << "Number of queries executed in CUDA: " << result.size() << endl;

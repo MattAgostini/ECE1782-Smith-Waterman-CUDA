@@ -8,7 +8,7 @@
 #include <map>
 #include <vector>
 
-#define LENGTH_THRESHOLD 1000
+#define LENGTH_THRESHOLD 100
 
 using namespace std;
 
@@ -34,7 +34,6 @@ public:
         while (getline(filestream, tmp)) {
             buffer.append(tmp);
         }
-        
         filestream.close();
     };
 
@@ -68,7 +67,7 @@ public:
         subjectLengthSum = 0;
         
         string temp;
-        int _id = 0;
+        int _id = -1;
         bool isFirst = true;
         
         subject_sequence tmp;
@@ -97,7 +96,7 @@ public:
                 _id++;
             }
             else {
-                subjectSequence += temp;
+                subjectSequence.append(temp);
             }
             
         }
@@ -106,7 +105,7 @@ public:
             tmp.id = _id;
             tmp.sequence = subjectSequence;
             parsedDB[subjectSequence.length()].push_back(tmp);
-
+            
             subjectSequences.push_back(tmp);
             subjectLengthSum += subjectSequence.length();
             largestSubjectLength = max(largestSubjectLength, (int)subjectSequence.length());

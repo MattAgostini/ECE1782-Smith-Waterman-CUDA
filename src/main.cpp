@@ -50,7 +50,7 @@ int main( int argc, char *argv[] ) {
     // Parse database file
     std::string datapath = vm["db"].as<std::string>();
     FASTADatabase db(datapath);
-
+    
     vector<seqid_score> result = smith_waterman_cuda(query, db);
 	
     for (vector<seqid_score>::iterator it = result.begin(); it != result.end(); ++it) {
