@@ -4,8 +4,6 @@
 #include "FASTAParsers.h"
 #include "SWSolver.h"
 
-#define SEQ_EQUAL 3
-#define SEQ_DIFF -3
 #define GAP_PENALTY 2
 // define affine penalty ?
 
@@ -15,8 +13,6 @@
 
 #define MAX_BLOCK_SIZE 1024
 #define MAX_GRID_DIM 65535
-
-#define LENGTH_THRESHOLD 100
 
 #define A 0
 #define R 1
