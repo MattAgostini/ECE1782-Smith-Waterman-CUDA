@@ -1,5 +1,5 @@
 #define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE MyTest
+#define BOOST_TEST_MODULE QueryComparison
 #include <boost/test/unit_test.hpp>
 #include <string>
 #include <map>
@@ -31,22 +31,32 @@ std::map<int, int> parse_golden_results(std::string filepath) {
 
 BOOST_AUTO_TEST_CASE( P02232 )
 {
-    //BOOST_CHECK( add( 2,2 ) == 4 );        // #1 continues on error
     FASTAQuery query("data/queries/P02232.fasta", true);
     FASTADatabase db("data/dbs/uniprot_sprot.fasta");
     
     std::vector<seqid_score> result = smith_waterman_cuda(query, db);
     std::map<int, int> reference_results = parse_golden_results("test/reference/P02232.txt");
     
-    //std::cout << result[0].first << ":" << result[0].second << std::endl;
-    //query.print_buffer();
-    
     for (vector<seqid_score>::iterator it = result.begin(); it != result.end(); ++it) {
-        //cout << (*it).first << ":" << (*it).second << endl;
         BOOST_CHECK( (*it).second == reference_results[(*it).first] );
     }
     
-    
-    
+    std::cout << "Number of queries executed in CUDA: " << result.size() << endl;
     //std::cout << reference_results[result[0].first] << std::endl;
 }
+
+/*BOOST_AUTO_TEST_CASE( P01008 )
+{
+    FASTAQuery query("data/queries/P01008.fasta", true);
+    FASTADatabase db("data/dbs/uniprot_sprot.fasta");
+    
+    std::vector<seqid_score> result = smith_waterman_cuda(query, db);
+    std::map<int, int> reference_results = parse_golden_results("test/reference/P01008.txt");
+    
+    for (vector<seqid_score>::iterator it = result.begin(); it != result.end(); ++it) {
+        BOOST_CHECK( (*it).second == reference_results[(*it).first] );
+    }
+    
+    std::cout << "Number of queries executed in CUDA: " << result.size() << endl;
+    //std::cout << reference_results[result[0].first] << std::endl;
+}*/

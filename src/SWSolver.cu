@@ -4,8 +4,6 @@
 #include "FASTAParsers.h"
 #include "SWSolver.h"
 
-#define SEQ_EQUAL 3
-#define SEQ_DIFF -3
 #define GAP_PENALTY 2
 // define affine penalty ?
 
