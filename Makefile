@@ -20,8 +20,8 @@ directories:
 
 $(TARGETPATH)/SWSolver.o: $(SOURCEPATH)/SWSolver.cu
 	$(CC) -c $(SOURCEPATH)/SWSolver.cu -o $(TARGETPATH)/SWSolver.o $(CFLAGS)
-	
-$(TARGETPATH)/main: $(SOURCEPATH)/main.cpp
+
+$(TARGETPATH)/main: $(SOURCEPATH)/main.cpp ${SOURCEPATH}/SWSolver.cu
 	$(CC) -o $(TARGETPATH)/main $(SOURCEPATH)/main.cpp $(TARGETPATH)/SWSolver.o $(CFLAGS)
 
 $(TARGETPATH)/testchar: $(SOURCEPATH)/testchar.cu
