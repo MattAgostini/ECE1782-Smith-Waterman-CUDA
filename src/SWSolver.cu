@@ -16,8 +16,6 @@
 #define MAX_BLOCK_SIZE 1024
 #define MAX_GRID_DIM 65535
 
-#define LENGTH_THRESHOLD 100
-
 #define A 0
 #define R 1
 #define N 2
@@ -244,7 +242,7 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     dim3 block(1, BLOCK_Y_DIM);
     dim3 grid(1, grid_y_dim);
     
-    f_scoreSequenceCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, db.largestSubjectLength, querySequence.length(), db.numSubjects);
+    f_scoreSequence<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, db.largestSubjectLength, querySequence.length(), db.numSubjects);
 
     cudaDeviceSynchronize();
 

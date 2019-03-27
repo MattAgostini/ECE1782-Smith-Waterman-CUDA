@@ -8,7 +8,7 @@
 #include <map>
 #include <vector>
 
-#define LENGTH_THRESHOLD 100
+#define LENGTH_THRESHOLD 1000
 
 using namespace std;
 
@@ -32,7 +32,6 @@ public:
         getline(filestream, tmp); // Skip first line
         
         while (getline(filestream, tmp)) {
-            //fasta_stream >> tmp;
             buffer.append(tmp);
         }
         
@@ -95,7 +94,7 @@ public:
                 
                 //cout << subjectSequence << endl;
                 subjectSequence = "";
-				_id++;
+                _id++;
             }
             else {
                 subjectSequence += temp;
