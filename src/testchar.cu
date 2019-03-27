@@ -9,6 +9,9 @@
 #include <algorithm>
 #include "boost/program_options.hpp"
 
+#include "FASTAParsers.h"
+#include "SWSolver.h"
+
 #define SEQ_EQUAL 3
 #define SEQ_DIFF -3
 #define GAP_PENALTY 2
@@ -80,10 +83,11 @@ int blosum50[25][25] = {
 /* * */ {-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5, 1 }
 };
 
+// rechecking values - complete: ABCDEFGHIJKLMN PQRST VWXYZ
 int blosum50_alpha[25][25] = {
 //        A  B  C  D  E  F  G  H  I  J  K  L  M  N  P  Q  R  S  T  V  W  X  Y  Z  *
 /* A */ { 5,-2,-1,-2,-1,-3, 0,-2,-1,-2,-1,-2,-1,-1,-1,-1,-2, 1, 0, 0,-3,-1,-2,-1,-5 },
-/* B */ {-2, 6,-3, 6, 1,-4,-1, 0,-4,-4, 0,-4,-3, 5,-4, 0,-1, 0, 0,-3,-5,-1,-3, 1,-5 },
+/* B */ {-2, 6,-3, 6, 1,-4,-1, 0,-4,-4, 0,-4,-3, 5,-2, 0,-1, 0, 0,-3,-5,-1,-3, 1,-5 },
 /* C */ {-1,-3,13,-4,-3,-2,-3,-3,-2,-2,-3,-2,-2,-2,-4,-3,-4,-1,-1,-1,-5,-1,-3,-3,-5 },
 /* D */ {-2, 6,-4, 8, 2,-5,-1,-1,-4,-4,-1,-4,-4, 2,-1, 0,-2, 0,-1,-4,-5,-1,-3, 1,-5 },
 /* E */ {-1, 1,-3, 2, 6,-3,-3, 0,-4,-3, 1,-3,-2, 0,-1, 2, 0,-1,-1,-3,-3,-1,-2, 5,-5 }, 
@@ -105,7 +109,7 @@ int blosum50_alpha[25][25] = {
 /* W */ {-3,-5,-5,-5,-3, 1,-3,-3,-3,-2,-3,-2,-1,-4,-4,-1,-3,-4,-3,-3,15,-1, 2,-2,-5 },
 /* X */ {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-5 },
 /* Y */ {-2,-3,-3,-3,-2, 4,-3, 2,-1,-1,-2,-1, 0,-2,-3,-1,-1,-2,-2,-1, 2,-1, 8,-2,-5 }, 
-/* Z */ {-1, 1,-3, 1, 4,-4,-2, 0,-3,-3, 1,-3,-1, 0,-1, 4, 0, 0,-1,-3,-2,-1,-2, 5,-5 },
+/* Z */ {-1, 1,-3, 1, 5,-4,-2, 0,-3,-3, 1,-3,-1, 0,-1, 4, 0, 0,-1,-3,-2,-1,-2, 5,-5 },
 /* * */ {-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5, 1 }
 };
 
@@ -146,11 +150,6 @@ char convertStringToChar(char character) {
     return '*';
 }
 
-struct subject_sequence {
-    int id;
-    string sequence;
-};
-
 // Time stamp function
 double getTimeStamp() {
     struct timeval tv;
@@ -158,6 +157,7 @@ double getTimeStamp() {
     return (double) tv.tv_usec/1000000 + tv.tv_sec;
 }
 
+// Kernel function for computing the scoring matrix of a sequence
 __global__ void f_scoreSequence(char* subject, float* scoringMatrix, float* maxScoreList, int width, int height, int numSubjects) {
 
     //register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
@@ -203,6 +203,7 @@ __global__ void f_scoreSequence(char* subject, float* scoringMatrix, float* maxS
 					subjectValue = temp;
 					searchMatrix = 3;
 				}
+
 				else if (query > 79 && subjectValue > 79) // both in P-T
 					searchMatrix = 4;
 				else if (query > 79) // query in P-T, subjectValue in A-N
@@ -213,39 +214,40 @@ __global__ void f_scoreSequence(char* subject, float* scoringMatrix, float* maxS
 					subjectValue = temp;
 					searchMatrix = 5;
 				}
+
 				else // both in A-N
 					searchMatrix = 6;
 
 				// based on the searchMatrix value, use a switch case and calculate the similarityScore
-				// if value is * (42), have to do different subtraction
+				// if value is * (42), result is either -5 (not similar) or 1 (similar)
 				switch(searchMatrix)
 				{
 					case 1: {
 						if (query == 42 && subjectValue == 42) similarityScore = 1;
 						else if ((query == 42 && subjectValue != 42) || (query != 42 && subjectValue == 42)) similarityScore = -5;
-						else similarityScore = constSubstitutionMatrix[((query-68) * 25) + subjectValue-68]; 
+						else similarityScore = constSubstitutionMatrix[((query-67) * 25) + subjectValue-67]; 
 						break; }
 
 					case 2: {
 						if (query == 42) similarityScore = -5;
-						else similarityScore = constSubstitutionMatrix[((query-68) * 25) + subjectValue-67];
+						else similarityScore = constSubstitutionMatrix[((query-67) * 25) + subjectValue-66];
 						break; }
 				
 					case 3: {
 						if (query == 42) similarityScore = -5;
-						else similarityScore = constSubstitutionMatrix[((query-68) * 25) + subjectValue-66];
+						else similarityScore = constSubstitutionMatrix[((query-67) * 25) + subjectValue-65];
 						break; }
 			
 					case 4: {
-						similarityScore = constSubstitutionMatrix[((query-67) * 25) + subjectValue-67];
+						similarityScore = constSubstitutionMatrix[((query-66) * 25) + subjectValue-66];
 						break; }
 
 					case 5: {
-						similarityScore = constSubstitutionMatrix[((query-67) * 25) + subjectValue-66];
+						similarityScore = constSubstitutionMatrix[((query-66) * 25) + subjectValue-65];
 						break; }
 			
 					case 6: {
-						similarityScore = constSubstitutionMatrix[((query-66) * 25) + subjectValue-66];
+						similarityScore = constSubstitutionMatrix[((query-65) * 25) + subjectValue-65];
 						break; }
 				}
 					
@@ -298,42 +300,6 @@ __global__ void f_scoreSequenceCoalesced(float* subject, float* scoringMatrix, f
     }
 }
 
-class ParsedFASTA {
-private:
-    bool isQuery;
-    stringstream header;
-    string buffer;
-public:
-    ParsedFASTA(std::string filepath, bool _isQuery) {
-        isQuery = _isQuery;
-
-        ifstream filestream;
-        filestream.open(filepath.c_str());
-        filestream.ignore(numeric_limits<streamsize>::max(), '\n');
-
-        stringstream fasta_stream;
-        fasta_stream << filestream.rdbuf();
-        buffer.reserve(10000); // optimization -- reserve some arbitrary length
-        string tmp;
-        while (fasta_stream) {
-            fasta_stream >> tmp;
-            buffer.append(tmp);
-        }
-        filestream.close();
-    };
-
-    ~ParsedFASTA() {
-    };
-
-    void print_buffer() {
-        cout << buffer << endl;
-    };
-
-    string get_buffer() {
-        return buffer;
-    };
-};
-
 int main( int argc, char *argv[] ) {
     double time_start = getTimeStamp();
 
@@ -359,103 +325,30 @@ int main( int argc, char *argv[] ) {
     }
 
     std::string querypath = vm["query"].as<std::string>();
-    ParsedFASTA query(querypath, true);
+    FASTAQuery query(querypath, true);
     cout << "Input buffer:";
     query.print_buffer();
     cout << endl;
     string querySequenceBuffer = query.get_buffer();
     char querySequence[querySequenceBuffer.length() + 1];
+	//querySequenceBuffer.copy(querySequence, querySequenceBuffer.length() + 1);
 	copy(querySequenceBuffer.begin(), querySequenceBuffer.end(), querySequence);
 	querySequence[querySequenceBuffer.length()] = '\0';
 
     // Parse database file
-    ifstream databaseFile;
-    std::string datapath = vm["db"].as<std::string>();
-    databaseFile.open(datapath.c_str());
-	
-	int subjectLengthSum = 0;
+	std::string datapath = vm["db"].as<std::string>();
+    FASTADatabase db(datapath);
 
-    string temp;
-
-    // key is sequence length, value is a vector of subject_sequence struct
-    map<int, vector<subject_sequence> > parsedDB;
-
-    vector<string> subjectSequences;
-	vector<int> subjectLengths;
-    string subjectSequence = "";
-    int largestSubjectLength = 0;
-    int numSubjects = 0;
-    bool isFirst = true;
-
-    subject_sequence tmp;
-
-    int _id = 0;
-    while (getline(databaseFile, temp)) {
-
-        // This line denotes the start of a sequence
-        if (temp[0] == '>') {
-            if (!isFirst) {
-                if (subjectSequence.length() <= LENGTH_THRESHOLD) {
-                    tmp.id = _id++;
-                    tmp.sequence = subjectSequence;
-                    parsedDB[subjectSequence.length()].push_back(tmp);
-
-					//char cstr[subjectSequence.length() + 1];
-					//copy(subjectSequence.begin(), subjectSequence.end(), cstr);
-					//cstr[subjectSequence.length()] = '\0';
-                    subjectSequences.push_back(subjectSequence);
-					subjectLengths.push_back(subjectSequence.length());
-                    subjectLengthSum += subjectSequence.length();
-                    largestSubjectLength = max(largestSubjectLength, (int)subjectSequence.length());
-
-                    numSubjects++;
-                }
-            }
-            isFirst = false;
-            
-            subjectSequence = "";
-        }
-        else {
-            subjectSequence += temp;
-        }
-        
-    }
-    // Adding last sequence 
-    if (subjectSequence.length() <= LENGTH_THRESHOLD) {
-        tmp.id = _id++;
-        tmp.sequence = subjectSequence;
-        parsedDB[subjectSequence.length()].push_back(tmp);
-
-		//char cstr[subjectSequence.length() + 1];
-		//copy(subjectSequence.begin(), subjectSequence.end(), cstr);
-		//cstr[subjectSequence.length()] = '\0';
-        subjectSequences.push_back(subjectSequence);
-		subjectLengths.push_back(subjectSequence.length());
-        subjectLengthSum += subjectSequence.length();
-        largestSubjectLength = max(largestSubjectLength, (int)subjectSequence.length());
-        
-        numSubjects++;
-    }
-	/*
-	cout << endl;
-	cout << "---------------------------------------------------------------------------------------------------------------------" << endl;
-	for (int i = 0; i < subjectSequences.size(); i++)
-		cout << subjectSequences[i] << " ";
-	cout << endl;
-	*/	
-
-    databaseFile.close();
-
-	cout << "Largest subject: " << largestSubjectLength << endl;
-    cout << "Num subjects: " << numSubjects << endl;
-    cout << "Accumulated db length: " << subjectLengthSum << endl;
+	//cout << "Largest subject: " << largestSubjectLength << endl;
+    //cout << "Num subjects: " << numSubjects << endl;
+    //cout << "Accumulated db length: " << subjectLengthSum << endl;
 
     // alloc memory on GPU
     //float* d_input_query = new float[strlen(querySequence)];
 	//memset(d_input_query, 0, sizeof(float) * strlen(querySequence));
 
     char* d_input_subject;
-    cudaMallocManaged((void**) &d_input_subject, (largestSubjectLength * numSubjects) * sizeof(char));
+    cudaMallocManaged((void**) &d_input_subject, (db.largestSubjectLength * db.numSubjects) * sizeof(char));
 	/*
 	memcpy(d_input_subject, subjectSequences[0], ((largestSubjectLength * numSubjects) + 1) * sizeof(char));
 	
@@ -465,43 +358,23 @@ int main( int argc, char *argv[] ) {
 	*/
 
 	// Set up offsets 
-    int grid_y_dim = ceil(numSubjects / BLOCK_Y_DIM);
+    int grid_y_dim = ceil(db.numSubjects / BLOCK_Y_DIM);
     
-    float* d_input_offsets;
-    cudaMallocManaged((void**) &d_input_offsets, grid_y_dim * sizeof(float));
+    char* d_input_offsets;
+    cudaMallocManaged((void**) &d_input_offsets, grid_y_dim * sizeof(char));
 
     float* d_output_scoring;
-    cudaMallocManaged((void**) &d_output_scoring, ((strlen(querySequence) + 1) * (largestSubjectLength + 1) * numSubjects) * sizeof(float));
+    cudaMallocManaged((void**) &d_output_scoring, ((strlen(querySequence) + 1) * (db.largestSubjectLength + 1) * db.numSubjects) * sizeof(float));
 
 	float* d_output_max_score;
-    cudaMallocManaged((void**) &d_output_max_score, numSubjects * sizeof(float));
+    cudaMallocManaged((void**) &d_output_max_score, db.numSubjects * sizeof(float));
 
-    // Convert string to float representation (can't really use strings on the GPU)
-	/*
-    for (int i = 0; i < strlen(querySequence);i++) {
-        switch(querySequence[i])
-        {
-            case 'A': { d_input_query[i] = A;
-                        break;
-                    }
-            case 'G': { d_input_query[i] = G;
-                        break;
-                    }
-            case 'C': { d_input_query[i] = C;
-                        break;
-                    }
-            case 'T': { d_input_query[i] = T;
-                        break;
-                    }
-        }
-    }
-	*/
-	for (int i = 0; i < numSubjects; i++) {
-        for (int j = 0; j < largestSubjectLength; j++) { // Will need to pad here
-            if (j < subjectSequences[i].length()) {
-                d_input_subject[i*largestSubjectLength + j] = convertStringToChar(subjectSequences[i][j]);
+	for (int i = 0; i < db.numSubjects; i++) {
+        for (int j = 0; j < db.largestSubjectLength; j++) { // Will need to pad here
+            if (j < db.subjectSequences[i].sequence.length()) {
+                d_input_subject[i*db.largestSubjectLength + j] = convertStringToChar(db.subjectSequences[i].sequence[j]);
             }
-            else d_input_subject[i*largestSubjectLength + j] = STAR;
+            else d_input_subject[i*db.largestSubjectLength + j] = STAR;
         }
     }
 
@@ -512,7 +385,7 @@ int main( int argc, char *argv[] ) {
     dim3 block(1, BLOCK_Y_DIM);
     dim3 grid(1, grid_y_dim);
  
-    f_scoreSequence<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, largestSubjectLength, strlen(querySequence), numSubjects);
+    f_scoreSequence<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, db.largestSubjectLength, strlen(querySequence), db.numSubjects);
 
     cudaDeviceSynchronize();
 
@@ -538,9 +411,13 @@ int main( int argc, char *argv[] ) {
         }
     }*/
 
-	// Print results for 1 subject query
-    for (int subject = 0; subject < numSubjects; subject++) {
-        cout << d_output_max_score[subject] << endl;
+	vector<seqid_score> scores;
+	for (int subject = 0; subject < db.numSubjects; subject++) {
+        scores.push_back(make_pair(db.subjectSequences[subject].id, d_output_max_score[subject])); // change this
+    }
+
+	for (vector<seqid_score>::iterator it = scores.begin(); it != scores.end(); ++it) {
+        cout << (*it).first << ":" << (*it).second << endl;
     }
 
     double time_end = getTimeStamp();
@@ -549,9 +426,10 @@ int main( int argc, char *argv[] ) {
     cout << std::string(80, '=') << endl;
     cout << "METRICS:" << endl;
     cout << "Query length: " << strlen(querySequence) << " chars." << endl;
-    cout << "Sum of DB length: " << subjectLengthSum << " chars." << endl;
+	cout << "Num subjects: " << db.numSubjects << endl;
+    cout << "Sum of DB length: " << db.subjectLengthSum << " chars." << endl;
     cout << "Time elapsed: " << seconds_elapsed << " seconds." << endl;
-    cout << "Performance: " << 1E-9 * (strlen(querySequence) * subjectLengthSum)
+    cout << "Performance: " << 1E-9 * (strlen(querySequence) * db.subjectLengthSum)
             / seconds_elapsed << " GCUPS." << endl;
 
     //delete[] d_input_query;
