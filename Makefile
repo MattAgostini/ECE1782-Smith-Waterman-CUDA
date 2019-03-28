@@ -13,7 +13,7 @@ TESTPATH = ./test
 MKDIR_P = mkdir -p
 
 .PHONY: all directories clean
-all: directories $(TARGETPATH)/SWSolver.o $(TARGETPATH)/main $(TARGETPATH)/testchar $(TARGETPATH)/swissprot_tests
+all: directories $(TARGETPATH)/SWSolver.o $(TARGETPATH)/SWSolver_char.o $(TARGETPATH)/main $(TARGETPATH)/testchar $(TARGETPATH)/swissprot_tests
 
 directories:
 	$(MKDIR_P) $(TARGETPATH)
@@ -21,15 +21,18 @@ directories:
 $(TARGETPATH)/SWSolver.o: $(SOURCEPATH)/SWSolver.cu
 	$(CC) -c $(SOURCEPATH)/SWSolver.cu -o $(TARGETPATH)/SWSolver.o $(CFLAGS)
 
+$(TARGETPATH)/SWSolver_char.o: $(SOURCEPATH)/SWSolver_char.cu
+	$(CC) -c $(SOURCEPATH)/SWSolver_char.cu -o $(TARGETPATH)/SWSolver_char.o $(CFLAGS)
+
 $(TARGETPATH)/main: $(SOURCEPATH)/main.cpp ${SOURCEPATH}/SWSolver.cu
 	$(CC) -o $(TARGETPATH)/main $(SOURCEPATH)/main.cpp $(TARGETPATH)/SWSolver.o $(CFLAGS)
 
-$(TARGETPATH)/testchar: $(SOURCEPATH)/testchar.cu
-	$(CC) -o $(TARGETPATH)/testchar $(SOURCEPATH)/testchar.cu $(CFLAGS)
+$(TARGETPATH)/testchar: $(SOURCEPATH)/testchar.cpp ${SOURCEPATH}/SWSolver_char.cu
+	$(CC) -o $(TARGETPATH)/testchar $(SOURCEPATH)/testchar.cpp $(TARGETPATH)/SWSolver_char.o $(CFLAGS)
 
-$(TARGETPATH)/swissprot_tests: $(SOURCEPATH)/SWSolver.cu $(TESTPATH)/swissprot_tests.cpp
+$(TARGETPATH)/swissprot_tests: $(SOURCEPATH)/SWSolver.cu $(SOURCEPATH)/SWSolver_char.cu $(TESTPATH)/swissprot_tests.cpp
 	$(CC) -c $(TESTPATH)/swissprot_tests.cpp -o $(TARGETPATH)/swissprot_tests.o $(CFLAGS)
-	$(CC) -o $(TARGETPATH)/swissprot_tests $(TARGETPATH)/SWSolver.o $(TARGETPATH)/swissprot_tests.o $(CFLAGS) -lboost_unit_test_framework
+	$(CC) -o $(TARGETPATH)/swissprot_tests $(TARGETPATH)/SWSolver.o $(TARGETPATH)/SWSolver_char.o $(TARGETPATH)/swissprot_tests.o $(CFLAGS) -lboost_unit_test_framework
 
 clean:
 	rm -rf ./bin
