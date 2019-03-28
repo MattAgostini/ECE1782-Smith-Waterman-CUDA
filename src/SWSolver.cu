@@ -151,7 +151,8 @@ __global__ void f_scoreSequenceCoalesced(float* subject, float* scoringMatrix, f
     register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
     
     // Use map for different offsets (Change the width)
-    int blockOffset = (blockIdx.y * blockDim.y)*(width + 1)*(height + 1);
+    int subjectOffset = blockIdx.y * ((blockDim.y)*(width));
+    int blockOffset = blockIdx.y * ((blockDim.y)*(width + 1)*(height + 1));
 
     float maxScore = 0;
         if (yIndex < numSubjects) {
@@ -162,8 +163,8 @@ __global__ void f_scoreSequenceCoalesced(float* subject, float* scoringMatrix, f
                 score = max(score, scoringMatrix[blockOffset + (threadIdx.y + ((j - 1) * blockDim.y * (height + 1))) + (blockDim.y * i)] - GAP_PENALTY);
                 score = max(score, scoringMatrix[blockOffset + (threadIdx.y + (j * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))] - GAP_PENALTY);
 
-                //if (constQuery[i - 1] == subject[threadIdx.y + ((j - 1) * blockDim.y)]) similarityScore = substitutionMatrix[0];
-                int similarityScore = constSubstitutionMatrix[((int)constQuery[i - 1] * 25) + (int)subject[width*yIndex + j - 1]];
+                int similarityScore = constSubstitutionMatrix[((int)constQuery[i - 1] * 25) + (int)subject[subjectOffset + threadIdx.y + ((j - 1) * blockDim.y)]];
+                //int similarityScore = constSubstitutionMatrix[((int)constQuery[i - 1] * 25) + (int)subject[width*yIndex + j - 1]];
                 score = max(score, scoringMatrix[blockOffset + (threadIdx.y + ((j - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))] + similarityScore);
 
                 maxScore = max(maxScore, score);
@@ -178,32 +179,36 @@ __global__ void f_scoreSequenceCoalesced(float* subject, float* scoringMatrix, f
 vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     string querySequence = query.get_buffer();
     vector<seqid_score> scores;
-	
+    
     // alloc memory on GPU
     float* d_input_query = new float[querySequence.length()];
     memset(d_input_query, 0, sizeof(float) * querySequence.length());
-
+    
+    // TODO: Should probably put error checking and cleanup here.
+    
+    int paddedSubjects = ceil(db.numSubjects / BLOCK_Y_DIM) * BLOCK_Y_DIM;
+    
     float* d_input_subject;
-    cudaMallocManaged((void**) &d_input_subject, (db.largestSubjectLength * db.numSubjects) * sizeof(float));
+    cudaMallocManaged((void**) &d_input_subject, (db.largestSubjectLength * paddedSubjects) * sizeof(float));
     
     // Set up offsets 
     int grid_y_dim = ceil(db.numSubjects / BLOCK_Y_DIM);
     
     float* d_input_offsets;
     cudaMallocManaged((void**) &d_input_offsets, grid_y_dim * sizeof(float));
-
+    
     float* d_output_scoring;
     cudaMallocManaged((void**) &d_output_scoring, ((querySequence.length() + 1) *
-                (db.largestSubjectLength + 1) * db.numSubjects) * sizeof(float));
+                (db.largestSubjectLength + 1) * paddedSubjects) * sizeof(float));
     
     float* d_output_max_score;
     cudaMallocManaged((void**) &d_output_max_score, db.numSubjects * sizeof(float));
-
+    
     // Convert string to float representation (can't really use strings on the GPU)
     for (int i = 0; i < querySequence.length();i++) { // Pad to nearest 8 eventually here
         d_input_query[i] = convertStringToFloat(querySequence[i]);
     }
-	
+    
     /*
     int blockPop = 0;
     int blockNum = 1;
@@ -223,13 +228,18 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
         }
     }
     */
-	
-    for (int i = 0; i < db.numSubjects; i++) {
-        for (int j = 0; j < db.largestSubjectLength; j++) { // Will need to pad here
-            if (j < db.subjectSequences[i].sequence.length()) {
-                d_input_subject[i*db.largestSubjectLength + j] = convertStringToFloat(db.subjectSequences[i].sequence[j]);
+            
+    int blockOffset = BLOCK_Y_DIM * db.largestSubjectLength;
+    
+    for (int block = 0; block < ceil(db.numSubjects / BLOCK_Y_DIM); block++) {
+        for (int i = 0; i < BLOCK_Y_DIM; i++) {
+            for (int j = 0; j < db.largestSubjectLength; j++) { // Will need to pad here
+                if (j < db.subjectSequences[block*BLOCK_Y_DIM + i].sequence.length()) {
+                    //d_input_subject[i*db.largestSubjectLength + j] = convertStringToFloat(db.subjectSequences[i].sequence[j]);
+                    d_input_subject[blockOffset*block + (j * (int)BLOCK_Y_DIM) + i] = convertStringToFloat(db.subjectSequences[block*BLOCK_Y_DIM + i].sequence[j]);
+                }
+                else d_input_subject[blockOffset*block + (j * (int)BLOCK_Y_DIM) + i] = STAR;
             }
-            else d_input_subject[i*db.largestSubjectLength + j] = STAR;
         }
     }
 
@@ -240,11 +250,9 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     dim3 block(1, BLOCK_Y_DIM);
     dim3 grid(1, grid_y_dim);
     
-    f_scoreSequence<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, db.largestSubjectLength, querySequence.length(), db.numSubjects);
+    f_scoreSequenceCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, db.largestSubjectLength, querySequence.length(), db.numSubjects);
 
     cudaDeviceSynchronize();
-
-    cout << endl << db.subjectSequences[0].sequence << endl;
     /*
     // Print results for 1 subject query
     for (int subject = 0; subject < db.numSubjects; subject++) {
