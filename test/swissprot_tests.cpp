@@ -8,6 +8,7 @@
 
 #include "../src/FASTAParsers.h"
 #include "../src/SWSolver.h"
+#include "../src/SWSolver_char.h"
 
 std::map<int, int> parse_golden_results(std::string filepath) {
     ifstream filestream;
