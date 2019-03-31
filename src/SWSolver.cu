@@ -146,7 +146,7 @@ __global__ void f_scoreSequence(float* subject, float* scoringMatrix, float* max
 }
 
 // Kernel function for computing the scoring matrix of a sequence
-__global__ void f_scoreSequenceCoalesced(float* subject, float* scoringMatrix, float* maxScoreList, int height /*querySequence.length()*/, int numSubjects) {
+__global__ void f_scoreSequenceCoalesced(float* subject, short* scoringMatrix, float* maxScoreList, int height /*querySequence.length()*/, int numSubjects) {
 
     //register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
     register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
@@ -156,16 +156,16 @@ __global__ void f_scoreSequenceCoalesced(float* subject, float* scoringMatrix, f
     int subjectOffset = constSubjectOffsets[blockIdx.y];
     int blockOffset = constScoringOffsets[blockIdx.y];
 
-    float maxScore = 0;
+    int maxScore = 0;
     for (int i = 1; i < (height + 1); i++) {
         for (int j = 1; j < (width + 1); j++) {
-            float score = 0;
+            int score = 0;
 
-            score = max(score, scoringMatrix[blockOffset + (threadIdx.y + ((j - 1) * blockDim.y * (height + 1))) + (blockDim.y * i)] - GAP_PENALTY);
-            score = max(score, scoringMatrix[blockOffset + (threadIdx.y + (j * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))] - GAP_PENALTY);
+            score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + ((j - 1) * blockDim.y * (height + 1))) + (blockDim.y * i)] - GAP_PENALTY);
+            score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (j * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))] - GAP_PENALTY);
 
             int similarityScore = constSubstitutionMatrix[((int)constQuery[i - 1] * 25) + (int)subject[subjectOffset + threadIdx.y + ((j - 1) * blockDim.y)]];
-            score = max(score, scoringMatrix[blockOffset + (threadIdx.y + ((j - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))] + similarityScore);
+            score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + ((j - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))] + similarityScore);
 
             maxScore = max(maxScore, score);
 
@@ -196,10 +196,6 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     // Set up offsets 
     int grid_y_dim = ceil(db.numSubjects / BLOCK_Y_DIM);
     
-    float* d_output_scoring;
-    cudaMalloc((void**) &d_output_scoring, ((querySequence.length() + 1) *
-                (db.largestSubjectLength + 1) * paddedSubjects) * sizeof(float));
-    
     float* d_output_max_score;
     cudaMallocManaged((void**) &d_output_max_score, paddedSubjects * sizeof(float));
     
@@ -208,42 +204,69 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
         d_input_query[i] = convertStringToFloat(querySequence[i]);
     }
     
-    /*
     int blockPop = 0;
     int blockNum = 1;
+    subject_offsets[0] = 0;
+    scoring_offsets[0] = 0;
+    
     int blockWidth = 0;
-    for (map<int, vector<subject_sequence> >::reverse_iterator it = parsedDB.rbegin(); it != parsedDB.rend(); ++it) {
+    for (map<int, vector<subject_sequence> >::reverse_iterator it = db.parsedDB.rbegin(); it != db.parsedDB.rend(); ++it) {
+        
         blockWidth = max(blockWidth, it->first);
+        
         for (int i = 0; i < it->second.size(); ++i) {
+            
+            for (int j = 0; j < blockWidth; j++) {
+                if (j < it->second[i].sequence.length()) {
+                    //d_input_subject[i*db.largestSubjectLength + j] = convertStringToFloat(db.subjectSequences[i].sequence[j]);
+                    d_input_subject[subject_offsets[blockNum - 1] + (j * (int)BLOCK_Y_DIM) + blockPop] = convertStringToFloat(it->second[i].sequence[j]);
+                }
+                else d_input_subject[subject_offsets[blockNum - 1] + (j * (int)BLOCK_Y_DIM) + blockPop] = STAR;
+            }
+            
+            blockPop++;
+            
             if (blockPop >= BLOCK_Y_DIM) {
+                
+                subject_lengths[blockNum - 1] = blockWidth;
+                subject_offsets[blockNum] = subject_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth));
+                scoring_offsets[blockNum] = scoring_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth + 1)*(querySequence.length() + 1));
+                
+                
                 blockPop = 0;
-                d_input_offsets[blockNum] = d_input_offsets[blockNum - 1] + (BLOCK_Y_DIM * blockWidth); // Need to include the query length for scoring matrix
                 blockNum++;
                 blockWidth = it->first;
             }
             
-            
-            blockPop++;
         }
+        
     }
-    */
     
-    int blockOffset = BLOCK_Y_DIM * db.largestSubjectLength;
+    // Need to fill in last block
+    if (blockPop != 0) {
+        subject_lengths[blockNum - 1] = blockWidth;
+        subject_offsets[blockNum] = subject_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth));
+        scoring_offsets[blockNum] = scoring_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth + 1)*(querySequence.length() + 1));
+    }
     
+    short* d_output_scoring;
+    cudaMalloc((void**) &d_output_scoring, scoring_offsets[blockNum] * sizeof(short));
+    
+    /*
     for (int block = 0; block < ceil(db.numSubjects / BLOCK_Y_DIM); block++) {
-        subject_lengths[block] = db.largestSubjectLength;
-        subject_offsets[block] = block * ((BLOCK_Y_DIM)*(db.largestSubjectLength));
-        scoring_offsets[block] = block * ((BLOCK_Y_DIM)*(db.largestSubjectLength + 1)*(querySequence.length() + 1));
+        //subject_lengths[block] = db.largestSubjectLength;
+        //subject_offsets[block] = block * ((BLOCK_Y_DIM)*(db.largestSubjectLength));
+        //scoring_offsets[block] = block * ((BLOCK_Y_DIM)*(db.largestSubjectLength + 1)*(querySequence.length() + 1));
         for (int i = 0; i < BLOCK_Y_DIM; i++) {
             for (int j = 0; j < db.largestSubjectLength; j++) { // Will need to pad here
                 if (j < db.subjectSequences[block*BLOCK_Y_DIM + i].sequence.length()) {
                     //d_input_subject[i*db.largestSubjectLength + j] = convertStringToFloat(db.subjectSequences[i].sequence[j]);
-                    d_input_subject[blockOffset*block + (j * (int)BLOCK_Y_DIM) + i] = convertStringToFloat(db.subjectSequences[block*BLOCK_Y_DIM + i].sequence[j]);
+                    d_input_subject[subject_offsets[block] + (j * (int)BLOCK_Y_DIM) + i] = convertStringToFloat(db.subjectSequences[block*BLOCK_Y_DIM + i].sequence[j]);
                 }
-                else d_input_subject[blockOffset*block + (j * (int)BLOCK_Y_DIM) + i] = STAR;
+                else d_input_subject[subject_offsets[block] + (j * (int)BLOCK_Y_DIM) + i] = STAR;
             }
         }
-    }
+    } */
     
     // Load in the constant memory
     cudaMemcpyToSymbol(constQuery, d_input_query, sizeof(float)*querySequence.length());
@@ -260,8 +283,17 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     
     cudaDeviceSynchronize();
     
+    /*
     for (int subject = 0; subject < db.numSubjects; subject++) {
         scores.push_back(make_pair(db.subjectSequences[subject].id, d_output_max_score[subject])); // change this
+    } */
+    
+    int subject = 0;
+    for (map<int, vector<subject_sequence> >::reverse_iterator it = db.parsedDB.rbegin(); it != db.parsedDB.rend(); ++it) {
+        for (int i = 0; i < it->second.size(); ++i) { 
+            scores.push_back(make_pair(it->second[i].id, d_output_max_score[subject])); // change this
+            subject++;
+        }
     }
     
     delete[] d_input_query;
@@ -273,7 +305,8 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     cudaFree(d_input_subject);
     cudaFree(d_output_scoring);
     cudaFree(d_output_max_score);
-    cudaDeviceReset();
+    
+    cudaDeviceReset(); // Comment for performance later
     
     return scores;
 }
