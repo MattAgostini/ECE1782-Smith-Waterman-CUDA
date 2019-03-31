@@ -77,6 +77,7 @@ using namespace std;
 
 __constant__ float constQuery[1024];
 __constant__ int constSubstitutionMatrix[625];
+__constant__ int constMemoryOffsets[2048];
 
 float convertStringToFloat(char character) {
     switch(character)
@@ -179,7 +180,7 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     
     // alloc memory on GPU
     float* d_input_query = new float[querySequence.length()];
-    memset(d_input_query, 0, sizeof(float) * querySequence.length());
+    int* memory_offsets = new int[2048];
     
     // TODO: Should probably put error checking and cleanup here.
     
@@ -191,11 +192,8 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     // Set up offsets 
     int grid_y_dim = ceil(db.numSubjects / BLOCK_Y_DIM);
     
-    float* d_input_offsets;
-    cudaMallocManaged((void**) &d_input_offsets, grid_y_dim * sizeof(float));
-    
     float* d_output_scoring;
-    cudaMallocManaged((void**) &d_output_scoring, ((querySequence.length() + 1) *
+    cudaMalloc((void**) &d_output_scoring, ((querySequence.length() + 1) *
                 (db.largestSubjectLength + 1) * paddedSubjects) * sizeof(float));
     
     float* d_output_max_score;
@@ -240,8 +238,10 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
         }
     }
     
+    // Load in the constant memory
     cudaMemcpyToSymbol(constQuery, d_input_query, sizeof(float)*querySequence.length());
     cudaMemcpyToSymbol(constSubstitutionMatrix, blosum50, sizeof(int)*625);
+    cudaMemcpyToSymbol(constMemoryOffsets, memory_offsets, sizeof(int)*2048);
     
     // Call GPU
     dim3 block(1, BLOCK_Y_DIM);
@@ -256,11 +256,10 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     }
     
     delete[] d_input_query;
+    delete[] memory_offsets;
     
     // Free device memory
-    cudaFree(d_input_query);
     cudaFree(d_input_subject);
-    cudaFree(d_input_offsets);
     cudaFree(d_output_scoring);
     cudaFree(d_output_max_score);
     cudaDeviceReset();
