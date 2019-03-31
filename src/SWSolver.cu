@@ -42,6 +42,9 @@
 
 #define BLOCK_Y_DIM 32.0
 
+#define MAX_LENGTH 105
+#define CONSTANT_SIZES 4096
+
 // first is sequence ID, second is max score
 
 short blosum50[25][25] = {
@@ -77,9 +80,9 @@ using namespace std;
 
 __constant__ short constQuery[1024];
 __constant__ short constSubstitutionMatrix[625];
-__constant__ int constSubjectLengths[2048];
-__constant__ int constSubjectOffsets[2048];
-__constant__ int constScoringOffsets[2048];
+__constant__ unsigned int constSubjectLengths[CONSTANT_SIZES];
+__constant__ unsigned int constSubjectOffsets[CONSTANT_SIZES];
+__constant__ unsigned int constScoringOffsets[CONSTANT_SIZES];
 
 inline float convertStringToFloat(char character) {
     switch(character)
@@ -152,9 +155,9 @@ __global__ void f_scoreSequenceCoalesced(short* subject, short* scoringMatrix, s
     register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
     
     // Use map for different offsets (Change the width)
-    int width = constSubjectLengths[blockIdx.y];
-    int subjectOffset = constSubjectOffsets[blockIdx.y];
-    int blockOffset = constScoringOffsets[blockIdx.y];
+    unsigned int width = constSubjectLengths[blockIdx.y];
+    unsigned int subjectOffset = constSubjectOffsets[blockIdx.y];
+    unsigned int blockOffset = constScoringOffsets[blockIdx.y];
 
     int maxScore = 0;
     for (int i = 1; i < (height + 1); i++) {
@@ -182,9 +185,9 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     
     // alloc memory on GPU
     short* d_input_query = new short[querySequence.length()];
-    int* subject_lengths = new int[2048];
-    int* subject_offsets = new int[2048];
-    int* scoring_offsets = new int[2048];
+    unsigned int* subject_lengths = new unsigned int[CONSTANT_SIZES];
+    unsigned int* subject_offsets = new unsigned int[CONSTANT_SIZES];
+    unsigned int* scoring_offsets = new unsigned int[CONSTANT_SIZES];
     
     // TODO: Should probably put error checking and cleanup here.
     
@@ -215,7 +218,6 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
         blockWidth = max(blockWidth, it->first);
         
         for (int i = 0; i < it->second.size(); ++i) {
-            
             for (int j = 0; j < blockWidth; j++) {
                 if (j < it->second[i].sequence.length()) {
                     //d_input_subject[i*db.largestSubjectLength + j] = convertStringToFloat(db.subjectSequences[i].sequence[j]);
@@ -227,19 +229,15 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
             blockPop++;
             
             if (blockPop >= BLOCK_Y_DIM) {
-                
                 subject_lengths[blockNum - 1] = blockWidth;
                 subject_offsets[blockNum] = subject_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth));
                 scoring_offsets[blockNum] = scoring_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth + 1)*(querySequence.length() + 1));
-                
                 
                 blockPop = 0;
                 blockNum++;
                 blockWidth = it->first;
             }
-            
         }
-        
     }
     
     // Need to fill in last block
@@ -252,7 +250,8 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     short* d_output_scoring;
     cudaMalloc((void**) &d_output_scoring, scoring_offsets[blockNum] * sizeof(short));
     
-    //cout << scoring_offsets[blockNum] * sizeof(short) << " bytes" << endl;
+    cout << subject_offsets[blockNum] * sizeof(short) << " subject bytes" << endl;
+    cout << scoring_offsets[blockNum] * sizeof(short) << " scoring bytes" << endl;
     
     /*
     for (int block = 0; block < ceil(db.numSubjects / BLOCK_Y_DIM); block++) {
@@ -273,9 +272,9 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     // Load in the constant memory
     cudaMemcpyToSymbol(constQuery, d_input_query, sizeof(short)*querySequence.length());
     cudaMemcpyToSymbol(constSubstitutionMatrix, blosum50, sizeof(short)*625);
-    cudaMemcpyToSymbol(constSubjectLengths, subject_lengths, sizeof(int)*2048);
-    cudaMemcpyToSymbol(constSubjectOffsets, subject_offsets, sizeof(int)*2048);
-    cudaMemcpyToSymbol(constScoringOffsets, scoring_offsets, sizeof(int)*2048);
+    cudaMemcpyToSymbol(constSubjectLengths, subject_lengths, sizeof(unsigned int)*CONSTANT_SIZES);
+    cudaMemcpyToSymbol(constSubjectOffsets, subject_offsets, sizeof(unsigned int)*CONSTANT_SIZES);
+    cudaMemcpyToSymbol(constScoringOffsets, scoring_offsets, sizeof(unsigned int)*CONSTANT_SIZES);
     
     // Call GPU
     dim3 block(1, BLOCK_Y_DIM);
