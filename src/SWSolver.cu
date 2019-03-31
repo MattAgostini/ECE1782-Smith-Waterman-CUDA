@@ -44,7 +44,7 @@
 
 // first is sequence ID, second is max score
 
-int blosum50[25][25] = {
+short blosum50[25][25] = {
 //        A  R  N  D  C  Q  E  G  H  I  L  K  M  F  P  S  T  W  Y  V  B  J  Z  X  *
 /* A */ { 5,-2,-1,-2,-1,-1,-1, 0,-2,-1,-2,-1,-1,-3,-1, 1, 0,-3,-2, 0,-2,-2,-1,-1,-5 },
 /* R */ {-2, 7,-1,-2,-4, 1, 0,-3, 0,-4,-3, 3,-2,-3,-3,-1,-1,-3,-1,-3,-1,-3, 0,-1,-5 },
@@ -75,8 +75,8 @@ int blosum50[25][25] = {
 
 using namespace std;
 
-__constant__ float constQuery[1024];
-__constant__ int constSubstitutionMatrix[625];
+__constant__ short constQuery[1024];
+__constant__ short constSubstitutionMatrix[625];
 __constant__ int constSubjectLengths[2048];
 __constant__ int constSubjectOffsets[2048];
 __constant__ int constScoringOffsets[2048];
@@ -146,7 +146,7 @@ __global__ void f_scoreSequence(float* subject, float* scoringMatrix, float* max
 }
 
 // Kernel function for computing the scoring matrix of a sequence
-__global__ void f_scoreSequenceCoalesced(float* subject, short* scoringMatrix, float* maxScoreList, int height /*querySequence.length()*/, int numSubjects) {
+__global__ void f_scoreSequenceCoalesced(short* subject, short* scoringMatrix, short* maxScoreList, int height /*querySequence.length()*/, int numSubjects) {
 
     //register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
     register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
@@ -181,7 +181,7 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     vector<seqid_score> scores;
     
     // alloc memory on GPU
-    float* d_input_query = new float[querySequence.length()];
+    short* d_input_query = new short[querySequence.length()];
     int* subject_lengths = new int[2048];
     int* subject_offsets = new int[2048];
     int* scoring_offsets = new int[2048];
@@ -190,14 +190,14 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     
     int paddedSubjects = ceil(db.numSubjects / BLOCK_Y_DIM) * BLOCK_Y_DIM;
     
-    float* d_input_subject;
-    cudaMallocManaged((void**) &d_input_subject, (db.largestSubjectLength * paddedSubjects) * sizeof(float));
+    short* d_input_subject;
+    cudaMallocManaged((void**) &d_input_subject, (db.largestSubjectLength * paddedSubjects) * sizeof(short));
     
     // Set up offsets 
     int grid_y_dim = ceil(db.numSubjects / BLOCK_Y_DIM);
     
-    float* d_output_max_score;
-    cudaMallocManaged((void**) &d_output_max_score, paddedSubjects * sizeof(float));
+    short* d_output_max_score;
+    cudaMallocManaged((void**) &d_output_max_score, paddedSubjects * sizeof(short));
     
     // Convert string to float representation (can't really use strings on the GPU)
     for (int i = 0; i < querySequence.length();i++) { // Pad to nearest 8 eventually here
@@ -252,6 +252,8 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     short* d_output_scoring;
     cudaMalloc((void**) &d_output_scoring, scoring_offsets[blockNum] * sizeof(short));
     
+    //cout << scoring_offsets[blockNum] * sizeof(short) << " bytes" << endl;
+    
     /*
     for (int block = 0; block < ceil(db.numSubjects / BLOCK_Y_DIM); block++) {
         //subject_lengths[block] = db.largestSubjectLength;
@@ -269,8 +271,8 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     } */
     
     // Load in the constant memory
-    cudaMemcpyToSymbol(constQuery, d_input_query, sizeof(float)*querySequence.length());
-    cudaMemcpyToSymbol(constSubstitutionMatrix, blosum50, sizeof(int)*625);
+    cudaMemcpyToSymbol(constQuery, d_input_query, sizeof(short)*querySequence.length());
+    cudaMemcpyToSymbol(constSubstitutionMatrix, blosum50, sizeof(short)*625);
     cudaMemcpyToSymbol(constSubjectLengths, subject_lengths, sizeof(int)*2048);
     cudaMemcpyToSymbol(constSubjectOffsets, subject_offsets, sizeof(int)*2048);
     cudaMemcpyToSymbol(constScoringOffsets, scoring_offsets, sizeof(int)*2048);
