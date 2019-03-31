@@ -77,9 +77,11 @@ using namespace std;
 
 __constant__ float constQuery[1024];
 __constant__ int constSubstitutionMatrix[625];
-__constant__ int constMemoryOffsets[2048];
+__constant__ int constSubjectLengths[2048];
+__constant__ int constSubjectOffsets[2048];
+__constant__ int constScoringOffsets[2048];
 
-float convertStringToFloat(char character) {
+inline float convertStringToFloat(char character) {
     switch(character)
     {
         case 'A': { return A; }
@@ -144,15 +146,15 @@ __global__ void f_scoreSequence(float* subject, float* scoringMatrix, float* max
 }
 
 // Kernel function for computing the scoring matrix of a sequence
-__global__ void f_scoreSequenceCoalesced(float* subject, float* scoringMatrix, float* maxScoreList, 
-                int width /*largestSubjectLength*/, int height /*querySequence.length()*/, int numSubjects) {
+__global__ void f_scoreSequenceCoalesced(float* subject, float* scoringMatrix, float* maxScoreList, int height /*querySequence.length()*/, int numSubjects) {
 
     //register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
     register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
     
     // Use map for different offsets (Change the width)
-    int subjectOffset = blockIdx.y * ((blockDim.y)*(width));
-    int blockOffset = blockIdx.y * ((blockDim.y)*(width + 1)*(height + 1));
+    int width = constSubjectLengths[blockIdx.y];
+    int subjectOffset = constSubjectOffsets[blockIdx.y];
+    int blockOffset = constScoringOffsets[blockIdx.y];
 
     float maxScore = 0;
     for (int i = 1; i < (height + 1); i++) {
@@ -180,7 +182,9 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     
     // alloc memory on GPU
     float* d_input_query = new float[querySequence.length()];
-    int* memory_offsets = new int[2048];
+    int* subject_lengths = new int[2048];
+    int* subject_offsets = new int[2048];
+    int* scoring_offsets = new int[2048];
     
     // TODO: Should probably put error checking and cleanup here.
     
@@ -227,6 +231,9 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     int blockOffset = BLOCK_Y_DIM * db.largestSubjectLength;
     
     for (int block = 0; block < ceil(db.numSubjects / BLOCK_Y_DIM); block++) {
+        subject_lengths[block] = db.largestSubjectLength;
+        subject_offsets[block] = block * ((BLOCK_Y_DIM)*(db.largestSubjectLength));
+        scoring_offsets[block] = block * ((BLOCK_Y_DIM)*(db.largestSubjectLength + 1)*(querySequence.length() + 1));
         for (int i = 0; i < BLOCK_Y_DIM; i++) {
             for (int j = 0; j < db.largestSubjectLength; j++) { // Will need to pad here
                 if (j < db.subjectSequences[block*BLOCK_Y_DIM + i].sequence.length()) {
@@ -241,13 +248,15 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     // Load in the constant memory
     cudaMemcpyToSymbol(constQuery, d_input_query, sizeof(float)*querySequence.length());
     cudaMemcpyToSymbol(constSubstitutionMatrix, blosum50, sizeof(int)*625);
-    cudaMemcpyToSymbol(constMemoryOffsets, memory_offsets, sizeof(int)*2048);
+    cudaMemcpyToSymbol(constSubjectLengths, subject_lengths, sizeof(int)*2048);
+    cudaMemcpyToSymbol(constSubjectOffsets, subject_offsets, sizeof(int)*2048);
+    cudaMemcpyToSymbol(constScoringOffsets, scoring_offsets, sizeof(int)*2048);
     
     // Call GPU
     dim3 block(1, BLOCK_Y_DIM);
     dim3 grid(1, grid_y_dim);
     
-    f_scoreSequenceCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, db.largestSubjectLength, querySequence.length(), db.numSubjects);
+    f_scoreSequenceCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), db.numSubjects);
     
     cudaDeviceSynchronize();
     
@@ -256,7 +265,9 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     }
     
     delete[] d_input_query;
-    delete[] memory_offsets;
+    delete[] subject_lengths;
+    delete[] subject_offsets;
+    delete[] scoring_offsets;
     
     // Free device memory
     cudaFree(d_input_subject);
