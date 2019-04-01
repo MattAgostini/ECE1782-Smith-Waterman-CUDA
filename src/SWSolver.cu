@@ -39,6 +39,7 @@
 #define Z 22
 #define X 23
 #define STAR 24
+#define SLASH 25
 
 #define BLOCK_Y_DIM 32.0
 
@@ -105,6 +106,7 @@ float convertStringToFloat(char character) {
         case 'J': { return J; }
         case 'Z': { return Z; }
         case 'X': { return X; }
+		case '/': { return SLASH; }
     }
     return STAR;
 }
@@ -123,19 +125,27 @@ __global__ void f_scoreSequence(float* subject, float* scoringMatrix, float* max
     
     float maxScore = 0;
         if (yIndex < numSubjects) {
-        for (int i = 1; i < (height + 1); i++) {
-            for (int j = 1; j < (width + 1); j++) {
-                float score = 0;
+        for (int i = 1; i < (height + 1); i += 8) {
+            for (int j = 1; j < (width + 1); j += 8) {
+				for (int k = 0; k < 8; k++) {
+		            float score = 0;
 
-                score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + (i * (width + 1)) + j - 1] - GAP_PENALTY);
-                score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + ((i - 1) * (width + 1)) + j] - GAP_PENALTY);
+		            score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + ((i + k) * (width + 1)) + (j + k) - 1] - GAP_PENALTY);
+		            score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + (((i + k) - 1) * (width + 1)) + (j + k)] - GAP_PENALTY);
 
-                int similarityScore = constSubstitutionMatrix[((int)constQuery[i - 1] * 25) + (int)subject[width*yIndex + j - 1]];
-                score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + ((i - 1) * (width + 1)) + j - 1] + similarityScore);
+					int similarityScore;
+					// check for padded /'s, (dummy symbol) -> score of zero with a real symbol
+					if ((int)constQuery[(i + k) - 1] == 25 || (int)subject[width*yIndex + (j + k) - 1] == 25)
+						similarityScore = 0;
+					else
+						similarityScore = constSubstitutionMatrix[((int)constQuery[(i + k) - 1] * 25) + (int)subject[width*yIndex + (j + k) - 1]];
 
-                maxScore = max(maxScore, score);
+		            score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + (((i + k) - 1) * (width + 1)) + (j + k) - 1] + similarityScore);
 
-                scoringMatrix[(width + 1)*(height + 1)*yIndex + (i * (width + 1)) + j] = score;
+		            maxScore = max(maxScore, score);
+
+		            scoringMatrix[(width + 1)*(height + 1)*yIndex + ((i + k) * (width + 1)) + (j + k)] = score;
+				}
             }
         }
         maxScoreList[yIndex] = maxScore;
@@ -154,19 +164,28 @@ __global__ void f_scoreSequenceCoalesced(float* subject, float* scoringMatrix, f
     int blockOffset = blockIdx.y * ((blockDim.y)*(width + 1)*(height + 1));
 
     float maxScore = 0;
-    for (int i = 1; i < (height + 1); i++) {
-        for (int j = 1; j < (width + 1); j++) {
-            float score = 0;
+    for (int i = 1; i < (height + 1); i += 8) {
+        for (int j = 1; j < (width + 1); j += 8) {
+			for (int k = 0; k < 8; k++) {
+				for (int m = 0; m < 8; m++) {
+		        	float score = 0;
 
-            score = max(score, scoringMatrix[blockOffset + (threadIdx.y + ((j - 1) * blockDim.y * (height + 1))) + (blockDim.y * i)] - GAP_PENALTY);
-            score = max(score, scoringMatrix[blockOffset + (threadIdx.y + (j * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))] - GAP_PENALTY);
+		        	score = max(score, scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] - GAP_PENALTY); // E[i, j]
+		        	score = max(score, scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] - GAP_PENALTY); // F[i, j]
 
-            int similarityScore = constSubstitutionMatrix[((int)constQuery[i - 1] * 25) + (int)subject[subjectOffset + threadIdx.y + ((j - 1) * blockDim.y)]];
-            score = max(score, scoringMatrix[blockOffset + (threadIdx.y + ((j - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))] + similarityScore);
+					int similarityScore;
+					if ((int)constQuery[(i + m) - 1] == 25 || (int)subject[subjectOffset + threadIdx.y + (((j + k) - 1) * blockDim.y)] == 25)
+						similarityScore = 0;
+					else
+		        		similarityScore = constSubstitutionMatrix[((int)constQuery[(i + m) - 1] * 25) + (int)subject[subjectOffset + threadIdx.y + (((j + k) - 1) * blockDim.y)]];
 
-            maxScore = max(maxScore, score);
+		        	score = max(score, scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] + similarityScore); // H(i-1, j-1) + sbt(Sa[i], Sb[j])
 
-            scoringMatrix[blockOffset + (threadIdx.y + (j * blockDim.y * (height + 1))) + (blockDim.y * i)] = score;
+		        	maxScore = max(maxScore, score); // H[i, j]
+
+		        	scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] = score;
+				}
+			}
         }
     }
     
@@ -175,8 +194,11 @@ __global__ void f_scoreSequenceCoalesced(float* subject, float* scoringMatrix, f
 
 vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     string querySequence = query.get_buffer();
+	while (querySequence.length() % 8 != 0) // pad to nearest 8
+		querySequence = querySequence + "/";
+
     vector<seqid_score> scores;
-    
+
     // alloc memory on GPU
     float* d_input_query = new float[querySequence.length()];
     memset(d_input_query, 0, sizeof(float) * querySequence.length());
@@ -246,7 +268,7 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     // Call GPU
     dim3 block(1, BLOCK_Y_DIM);
     dim3 grid(1, grid_y_dim);
-    
+
     f_scoreSequenceCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, db.largestSubjectLength, querySequence.length(), db.numSubjects);
     
     cudaDeviceSynchronize();

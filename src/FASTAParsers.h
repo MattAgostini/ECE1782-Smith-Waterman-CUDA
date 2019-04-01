@@ -78,8 +78,12 @@ public:
             if (temp[0] == '>') {
                 if (!isFirst) {
                     if (subjectSequence.length() <= LENGTH_THRESHOLD) {
+						while (subjectSequence.length() % 8 != 0) // pad to nearest 8
+							subjectSequence = subjectSequence + "/";
+
                         tmp.id = _id;
                         tmp.sequence = subjectSequence;
+						//if (tmp.sequence.length() % 8 != 0) exit(0); sequence length checkers for pad to 8
                         parsedDB[subjectSequence.length()].push_back(tmp);
 
                         subjectSequences.push_back(tmp);
@@ -102,8 +106,12 @@ public:
         }
         // Adding last sequence 
         if (subjectSequence.length() <= LENGTH_THRESHOLD) {
+			while (subjectSequence.length() % 8 != 0) // pad to nearest 8
+				subjectSequence = subjectSequence + "/";
+
             tmp.id = _id;
             tmp.sequence = subjectSequence;
+			//if (tmp.sequence.length() % 8 != 0) exit(0); sequence length checkers for pad to 8
             parsedDB[subjectSequence.length()].push_back(tmp);
             
             subjectSequences.push_back(tmp);
