@@ -171,6 +171,13 @@ __global__ void f_scoreSequenceCoalesced(short* subject, short* scoringMatrix, s
     unsigned int subjectOffset = constSubjectOffsets[blockIdx.y];
     unsigned int blockOffset = constScoringOffsets[blockIdx.y];
 
+    for (int i = 0; i < (height + 1); ++i) {
+        scoringMatrix[blockOffset + (threadIdx.y + (blockDim.y * (i)))] = 0;
+    }
+    
+    for (int j = 0; j < (width + 1); ++j) {
+        scoringMatrix[blockOffset + (threadIdx.y + ((j) * blockDim.y * (height + 1)))] = 0;
+    }
 	
     int maxScore = 0;
     for (int i = 1; i < (height + 1); i += TILE_SIZE) {
@@ -218,6 +225,9 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     
     short* d_output_max_score;
     cudaMallocManaged((void**) &d_output_max_score, paddedSubjects * sizeof(short));
+    
+    short* d_output_scoring;
+    cudaMalloc((void**) &d_output_scoring, 3720000000);
     
     // Convert string to float representation (can't really use strings on the GPU)
     for (int i = 0; i < querySequence.length();i++) { // Pad to nearest 8 eventually here
@@ -268,21 +278,16 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
                     cudaMemcpyToSymbol(constSubjectOffsets, subject_offsets, sizeof(unsigned int)*CONSTANT_SIZES);
                     cudaMemcpyToSymbol(constScoringOffsets, scoring_offsets, sizeof(unsigned int)*CONSTANT_SIZES);
                     
-                    short* d_output_scoring;
-                    cudaMalloc((void**) &d_output_scoring, scoring_offsets[blockNum] * sizeof(short));
-                    
                      // Call GPU
                     int grid_y_dim = blockNum;
 
                     dim3 block(1, BLOCK_Y_DIM);
                     dim3 grid(1, grid_y_dim);
-
+                    
                     f_scoreSequenceCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), resultOffset);
                     resultOffset = resultOffset + (blockNum) * BLOCK_Y_DIM;
 
                     cudaDeviceSynchronize();
-                    
-                    cudaFree(d_output_scoring);
 
                     subject_offsets[0] = 0;
                     scoring_offsets[0] = 0;
@@ -300,9 +305,6 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
         subject_offsets[blockNum] = subject_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth));
         scoring_offsets[blockNum] = scoring_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth + 1)*(querySequence.length() + 1));
     }
-    
-    short* d_output_scoring;
-    cudaMalloc((void**) &d_output_scoring, scoring_offsets[blockNum] * sizeof(short));
     
     // Load in the constant memory
     cudaMemcpyToSymbol(constSubjectLengths, subject_lengths, sizeof(unsigned int)*CONSTANT_SIZES);
