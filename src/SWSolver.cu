@@ -43,9 +43,12 @@
 
 #define BLOCK_Y_DIM 32.0
 
+#define MAX_LENGTH 105
+#define CONSTANT_SIZES 4096
+
 // first is sequence ID, second is max score
 
-int blosum50[25][25] = {
+short blosum50[25][25] = {
 //        A  R  N  D  C  Q  E  G  H  I  L  K  M  F  P  S  T  W  Y  V  B  J  Z  X  *
 /* A */ { 5,-2,-1,-2,-1,-1,-1, 0,-2,-1,-2,-1,-1,-3,-1, 1, 0,-3,-2, 0,-2,-2,-1,-1,-5 },
 /* R */ {-2, 7,-1,-2,-4, 1, 0,-3, 0,-4,-3, 3,-2,-3,-3,-1,-1,-3,-1,-3,-1,-3, 0,-1,-5 },
@@ -76,10 +79,13 @@ int blosum50[25][25] = {
 
 using namespace std;
 
-__constant__ float constQuery[1024];
-__constant__ int constSubstitutionMatrix[625];
+__constant__ short constQuery[1024];
+__constant__ short constSubstitutionMatrix[625];
+__constant__ unsigned int constSubjectLengths[CONSTANT_SIZES];
+__constant__ unsigned int constSubjectOffsets[CONSTANT_SIZES];
+__constant__ unsigned int constScoringOffsets[CONSTANT_SIZES];
 
-float convertStringToFloat(char character) {
+inline float convertStringToFloat(char character) {
     switch(character)
     {
         case 'A': { return A; }
@@ -153,25 +159,26 @@ __global__ void f_scoreSequence(float* subject, float* scoringMatrix, float* max
 }
 
 // Kernel function for computing the scoring matrix of a sequence
-__global__ void f_scoreSequenceCoalesced(float* subject, float* scoringMatrix, float* maxScoreList, 
-                int width /*largestSubjectLength*/, int height /*querySequence.length()*/, int numSubjects) {
+__global__ void f_scoreSequenceCoalesced(short* subject, short* scoringMatrix, short* maxScoreList, int height /*querySequence.length()*/, int numSubjects) {
 
     //register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
     register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
     
     // Use map for different offsets (Change the width)
-    int subjectOffset = blockIdx.y * ((blockDim.y)*(width));
-    int blockOffset = blockIdx.y * ((blockDim.y)*(width + 1)*(height + 1));
+    unsigned int width = constSubjectLengths[blockIdx.y];
+    unsigned int subjectOffset = constSubjectOffsets[blockIdx.y];
+    unsigned int blockOffset = constScoringOffsets[blockIdx.y];
 
-    float maxScore = 0;
+	
+    int maxScore = 0;
     for (int i = 1; i < (height + 1); i += 8) {
         for (int j = 1; j < (width + 1); j += 8) {
 			for (int k = 0; k < 8; k++) {
 				for (int m = 0; m < 8; m++) {
-		        	float score = 0;
+		        	int score = 0;
 
-		        	score = max(score, scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] - GAP_PENALTY); // E[i, j]
-		        	score = max(score, scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] - GAP_PENALTY); // F[i, j]
+		        	score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] - GAP_PENALTY); // E[i, j]
+		        	score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] - GAP_PENALTY); // F[i, j]
 
 					int similarityScore;
 					if ((int)constQuery[(i + m) - 1] == 25 || (int)subject[subjectOffset + threadIdx.y + (((j + k) - 1) * blockDim.y)] == 25)
@@ -179,7 +186,20 @@ __global__ void f_scoreSequenceCoalesced(float* subject, float* scoringMatrix, f
 					else
 		        		similarityScore = constSubstitutionMatrix[((int)constQuery[(i + m) - 1] * 25) + (int)subject[subjectOffset + threadIdx.y + (((j + k) - 1) * blockDim.y)]];
 
-		        	score = max(score, scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] + similarityScore); // H(i-1, j-1) + sbt(Sa[i], Sb[j])
+		        	score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] + similarityScore); // H(i-1, j-1) + sbt(Sa[i], Sb[j])
+	
+	/*
+    int maxScore = 0;
+    for (int i = 1; i < (height + 1); i++) {
+        for (int j = 1; j < (width + 1); j++) {
+            int score = 0;
+
+            score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + ((j - 1) * blockDim.y * (height + 1))) + (blockDim.y * i)] - GAP_PENALTY);
+            score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (j * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))] - GAP_PENALTY);
+
+            int similarityScore = constSubstitutionMatrix[((int)constQuery[i - 1] * 25) + (int)subject[subjectOffset + threadIdx.y + ((j - 1) * blockDim.y)]];
+            score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + ((j - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))] + similarityScore);
+	*/
 
 		        	maxScore = max(maxScore, score); // H[i, j]
 
@@ -200,92 +220,130 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     vector<seqid_score> scores;
 
     // alloc memory on GPU
-    float* d_input_query = new float[querySequence.length()];
-    memset(d_input_query, 0, sizeof(float) * querySequence.length());
+    short* d_input_query = new short[querySequence.length()];
+    unsigned int* subject_lengths = new unsigned int[CONSTANT_SIZES];
+    unsigned int* subject_offsets = new unsigned int[CONSTANT_SIZES];
+    unsigned int* scoring_offsets = new unsigned int[CONSTANT_SIZES];
     
     // TODO: Should probably put error checking and cleanup here.
     
     int paddedSubjects = ceil(db.numSubjects / BLOCK_Y_DIM) * BLOCK_Y_DIM;
     
-    float* d_input_subject;
-    cudaMallocManaged((void**) &d_input_subject, (db.largestSubjectLength * paddedSubjects) * sizeof(float));
+    short* d_input_subject;
+    cudaMallocManaged((void**) &d_input_subject, (db.largestSubjectLength * paddedSubjects) * sizeof(short));
     
     // Set up offsets 
     int grid_y_dim = ceil(db.numSubjects / BLOCK_Y_DIM);
     
-    float* d_input_offsets;
-    cudaMallocManaged((void**) &d_input_offsets, grid_y_dim * sizeof(float));
-    
-    float* d_output_scoring;
-    cudaMallocManaged((void**) &d_output_scoring, ((querySequence.length() + 1) *
-                (db.largestSubjectLength + 1) * paddedSubjects) * sizeof(float));
-    
-    float* d_output_max_score;
-    cudaMallocManaged((void**) &d_output_max_score, paddedSubjects * sizeof(float));
+    short* d_output_max_score;
+    cudaMallocManaged((void**) &d_output_max_score, paddedSubjects * sizeof(short));
     
     // Convert string to float representation (can't really use strings on the GPU)
     for (int i = 0; i < querySequence.length();i++) { // Pad to nearest 8 eventually here
         d_input_query[i] = convertStringToFloat(querySequence[i]);
     }
     
-    /*
     int blockPop = 0;
     int blockNum = 1;
+    subject_offsets[0] = 0;
+    scoring_offsets[0] = 0;
+    
     int blockWidth = 0;
-    for (map<int, vector<subject_sequence> >::reverse_iterator it = parsedDB.rbegin(); it != parsedDB.rend(); ++it) {
+    for (map<int, vector<subject_sequence> >::reverse_iterator it = db.parsedDB.rbegin(); it != db.parsedDB.rend(); ++it) {
+        
         blockWidth = max(blockWidth, it->first);
+        
         for (int i = 0; i < it->second.size(); ++i) {
+            for (int j = 0; j < blockWidth; j++) {
+                if (j < it->second[i].sequence.length()) {
+                    //d_input_subject[i*db.largestSubjectLength + j] = convertStringToFloat(db.subjectSequences[i].sequence[j]);
+                    d_input_subject[subject_offsets[blockNum - 1] + (j * (int)BLOCK_Y_DIM) + blockPop] = convertStringToFloat(it->second[i].sequence[j]);
+                }
+                else d_input_subject[subject_offsets[blockNum - 1] + (j * (int)BLOCK_Y_DIM) + blockPop] = STAR;
+            }
+            
+            blockPop++;
+            
             if (blockPop >= BLOCK_Y_DIM) {
+                subject_lengths[blockNum - 1] = blockWidth;
+                subject_offsets[blockNum] = subject_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth));
+                scoring_offsets[blockNum] = scoring_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth + 1)*(querySequence.length() + 1));
+                
                 blockPop = 0;
-                d_input_offsets[blockNum] = d_input_offsets[blockNum - 1] + (BLOCK_Y_DIM * blockWidth); // Need to include the query length for scoring matrix
                 blockNum++;
                 blockWidth = it->first;
             }
-            
-            
-            blockPop++;
         }
     }
-    */
     
-    int blockOffset = BLOCK_Y_DIM * db.largestSubjectLength;
+    // Need to fill in last block
+    if (blockPop != 0) {
+        subject_lengths[blockNum - 1] = blockWidth;
+        subject_offsets[blockNum] = subject_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth));
+        scoring_offsets[blockNum] = scoring_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth + 1)*(querySequence.length() + 1));
+    }
     
+    short* d_output_scoring;
+    cudaMalloc((void**) &d_output_scoring, scoring_offsets[blockNum] * sizeof(short));
+    
+    cout << subject_offsets[blockNum] * sizeof(short) << " subject bytes" << endl;
+    cout << scoring_offsets[blockNum] * sizeof(short) << " scoring bytes" << endl;
+    
+    /*
     for (int block = 0; block < ceil(db.numSubjects / BLOCK_Y_DIM); block++) {
+        //subject_lengths[block] = db.largestSubjectLength;
+        //subject_offsets[block] = block * ((BLOCK_Y_DIM)*(db.largestSubjectLength));
+        //scoring_offsets[block] = block * ((BLOCK_Y_DIM)*(db.largestSubjectLength + 1)*(querySequence.length() + 1));
         for (int i = 0; i < BLOCK_Y_DIM; i++) {
             for (int j = 0; j < db.largestSubjectLength; j++) { // Will need to pad here
                 if (j < db.subjectSequences[block*BLOCK_Y_DIM + i].sequence.length()) {
                     //d_input_subject[i*db.largestSubjectLength + j] = convertStringToFloat(db.subjectSequences[i].sequence[j]);
-                    d_input_subject[blockOffset*block + (j * (int)BLOCK_Y_DIM) + i] = convertStringToFloat(db.subjectSequences[block*BLOCK_Y_DIM + i].sequence[j]);
+                    d_input_subject[subject_offsets[block] + (j * (int)BLOCK_Y_DIM) + i] = convertStringToFloat(db.subjectSequences[block*BLOCK_Y_DIM + i].sequence[j]);
                 }
-                else d_input_subject[blockOffset*block + (j * (int)BLOCK_Y_DIM) + i] = STAR;
+                else d_input_subject[subject_offsets[block] + (j * (int)BLOCK_Y_DIM) + i] = STAR;
             }
         }
-    }
+    } */
     
-    cudaMemcpyToSymbol(constQuery, d_input_query, sizeof(float)*querySequence.length());
-    cudaMemcpyToSymbol(constSubstitutionMatrix, blosum50, sizeof(int)*625);
+    // Load in the constant memory
+    cudaMemcpyToSymbol(constQuery, d_input_query, sizeof(short)*querySequence.length());
+    cudaMemcpyToSymbol(constSubstitutionMatrix, blosum50, sizeof(short)*625);
+    cudaMemcpyToSymbol(constSubjectLengths, subject_lengths, sizeof(unsigned int)*CONSTANT_SIZES);
+    cudaMemcpyToSymbol(constSubjectOffsets, subject_offsets, sizeof(unsigned int)*CONSTANT_SIZES);
+    cudaMemcpyToSymbol(constScoringOffsets, scoring_offsets, sizeof(unsigned int)*CONSTANT_SIZES);
     
     // Call GPU
     dim3 block(1, BLOCK_Y_DIM);
     dim3 grid(1, grid_y_dim);
-
-    f_scoreSequenceCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, db.largestSubjectLength, querySequence.length(), db.numSubjects);
+    
+    f_scoreSequenceCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), db.numSubjects);
     
     cudaDeviceSynchronize();
     
+    /*
     for (int subject = 0; subject < db.numSubjects; subject++) {
         scores.push_back(make_pair(db.subjectSequences[subject].id, d_output_max_score[subject])); // change this
+    } */
+    
+    int subject = 0;
+    for (map<int, vector<subject_sequence> >::reverse_iterator it = db.parsedDB.rbegin(); it != db.parsedDB.rend(); ++it) {
+        for (int i = 0; i < it->second.size(); ++i) { 
+            scores.push_back(make_pair(it->second[i].id, d_output_max_score[subject])); // change this
+            subject++;
+        }
     }
     
     delete[] d_input_query;
+    delete[] subject_lengths;
+    delete[] subject_offsets;
+    delete[] scoring_offsets;
     
     // Free device memory
-    cudaFree(d_input_query);
     cudaFree(d_input_subject);
-    cudaFree(d_input_offsets);
     cudaFree(d_output_scoring);
     cudaFree(d_output_max_score);
-    cudaDeviceReset();
+    
+    cudaDeviceReset(); // Comment for performance later
     
     return scores;
 }
