@@ -8,7 +8,7 @@
 #include <map>
 #include <vector>
 
-#define LENGTH_THRESHOLD 150
+#define LENGTH_THRESHOLD 3000
 
 using namespace std;
 
