@@ -46,7 +46,7 @@
 #define CONSTANT_SIZES 4096
 #define TILE_SIZE 8
 
-#define GPU_MEM_THRESH 3700000000
+#define GPU_MEM_THRESH 3200000000
 #define CPU_MEM_THRESH  150000000
 
 // first is sequence ID, second is max score
@@ -203,12 +203,10 @@ __global__ void f_scoreSequenceCoalesced(short* subject, short* scoringMatrix, s
     maxScoreList[scoreOffset + yIndex] = maxScore;
 }
 
-vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
+void smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db, vector<seqid_score> &scores) {
     string querySequence = query.get_buffer();
     while (querySequence.length() % TILE_SIZE != 0) // pad to nearest 8
         querySequence = querySequence + "/";
-
-    vector<seqid_score> scores;
 
     short* d_input_query = new short[querySequence.length()];
     unsigned int* subject_lengths = new unsigned int[CONSTANT_SIZES];
@@ -341,7 +339,6 @@ vector<seqid_score> smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db) {
     cudaFree(d_output_max_score);
     
     cudaDeviceReset(); // Comment for performance later
-    
-    return scores;
+    return;
 }
 

@@ -46,7 +46,9 @@ void run_query_performance(std::string querypath, std::string dbpath) {
     FASTADatabase db(dbpath);
 
     
-    std::vector<seqid_score> result = smith_waterman_cuda(query, db);
+    std::vector<seqid_score> result;
+    result.reserve(600000);
+    smith_waterman_cuda(query, db, result);
 
     double time_end = getTimeStamp();
     double seconds_elapsed = time_end - time_start;
@@ -59,7 +61,9 @@ void run_query_against_reference(std::string querypath, std::string dbpath, std:
     FASTAQuery query(querypath, true);
     FASTADatabase db(dbpath);
     
-    std::vector<seqid_score> result = smith_waterman_cuda(query, db);
+    std::vector<seqid_score> result;
+    result.reserve(600000);
+    smith_waterman_cuda(query, db, result);
 
     std::map<int, int> reference_results = parse_golden_results(refpath);
     

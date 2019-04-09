@@ -51,7 +51,9 @@ int main( int argc, char *argv[] ) {
     std::string datapath = vm["db"].as<std::string>();
     FASTADatabase db(datapath);
     
-    vector<seqid_score> result = smith_waterman_cuda(query, db);
+    vector<seqid_score> result;    
+    result.reserve(600000);
+    smith_waterman_cuda(query, db, result);
 	
     for (vector<seqid_score>::iterator it = result.begin(); it != result.end(); ++it) {
         cout << (*it).first << ":" << (*it).second << endl;
