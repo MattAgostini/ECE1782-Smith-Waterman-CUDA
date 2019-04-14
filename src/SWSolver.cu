@@ -269,7 +269,8 @@ void smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db, vector<seqid_scor
                 blockWidth = it->first;
 
                 // If are going to exceed our resources we need to run a kernel and clean up
-                if ((subject_offsets[blockNum] * sizeof(short)) > CPU_MEM_THRESH || (scoring_offsets[blockNum] * sizeof(short)) > GPU_MEM_THRESH || (blockNum + 1) >= 4000) {
+                if ((subject_offsets[blockNum] * sizeof(short)) > CPU_MEM_THRESH || 
+                        ((scoring_offsets[blockNum] + scoring_offsets[blockNum] - scoring_offsets[blockNum- 1])  * sizeof(short)) > GPU_MEM_THRESH || (blockNum + 1) >= 4000) {
 
                     // Load in the constant memory
                     cudaMemcpyToSymbol(constSubjectLengths, subject_lengths, sizeof(unsigned int)*CONSTANT_SIZES);
