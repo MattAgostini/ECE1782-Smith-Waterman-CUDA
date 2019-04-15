@@ -214,10 +214,6 @@ __global__ void f_scoreSequenceTiledCoalesced(short* subject, short* scoringMatr
         scoringMatrix[blockOffset + (threadIdx.y + (blockDim.y * (i)))] = 0;
     }
 
-    for (int j = 0; j < (width + 1); ++j) {
-        scoringMatrix[blockOffset + (threadIdx.y + ((j) * blockDim.y * (height + 1)))] = 0;
-    }
-
     int maxScore = 0;
     int up_data, diagonal_nosim_data, diagonal_sim_data = 0;
     int similarityScore, score;
