@@ -180,21 +180,46 @@ __global__ void f_scoreSequenceCoalesced(short* subject, short* scoringMatrix, s
     }
 
     int maxScore = 0;
+    int up_data, diagonal_nosim_data, diagonal_sim_data = 0;
+    int similarityScore;
     for (int i = 1; i < (height + 1); i += TILE_SIZE) {
         for (int j = 1; j < (width + 1); j += TILE_SIZE) {
             for (int k = 0; k < TILE_SIZE; k++) {
+		//int bottom_score = 0;
+
+		// load above, left, and diagonal for the first access
+		//left_data = (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i))] - GAP_PENALTY; // F[]
+
+		up_data = (int)scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))]; // E[]
+
+		diagonal_nosim_data = (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))];
+
                 for (int m = 0; m < TILE_SIZE; m++) {
-                    int score = 0;
+                    int left_data, score = 0;
 
-                    score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] - GAP_PENALTY); // E[i, j]
-                    score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] - GAP_PENALTY); // F[i, j]
+		    // calculate diagonal_sim_data
+		    similarityScore = constSubstitutionMatrix[((int)constQuery[(i + m) - 1] * 25) + (int)subject[subjectOffset + threadIdx.y + (((j + k) - 1) * blockDim.y)]];
+		    diagonal_sim_data = diagonal_nosim_data + similarityScore;
 
-                    int similarityScore = constSubstitutionMatrix[((int)constQuery[(i + m) - 1] * 25) + (int)subject[subjectOffset + threadIdx.y + (((j + k) - 1) * blockDim.y)]];
-                    score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] + similarityScore); // H(i-1, j-1) + sbt(Sa[i], Sb[j])
+		    // load left_data
+		    left_data = (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))];
+
+		    // calculate the new score for cell H[i+m, j+k]
+		    score = max(max(max(score, left_data - GAP_PENALTY), up_data - GAP_PENALTY), diagonal_sim_data);
+		   
+                    //score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] - GAP_PENALTY); // F[i, j]
+                    //score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] - GAP_PENALTY); // E[i, j]
+
+                    //int similarityScore = constSubstitutionMatrix[((int)constQuery[(i + m) - 1] * 25) + (int)subject[subjectOffset + threadIdx.y + (((j + k) - 1) * blockDim.y)]];
+                    //score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] + similarityScore); // H(i-1, j-1) + sbt(Sa[i], Sb[j])
 
                     maxScore = max(maxScore, score); // H[i, j]
 
-                    scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] = score;
+               	    scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] = score;
+
+		    // set next up_data to H value and next diagonal_data to left_data
+		    up_data = score;
+		    diagonal_nosim_data = left_data;
                 }
             }
         }
