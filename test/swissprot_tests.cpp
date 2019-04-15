@@ -108,13 +108,11 @@ BOOST_AUTO_TEST_CASE(P27895) {run_query_performance("data/queries/P27895.fasta",
 BOOST_AUTO_TEST_CASE(P07756) {run_query_performance("data/queries/P07756.fasta","data/dbs/uniprot_sprot.fasta");}
 BOOST_AUTO_TEST_CASE(P04775) {run_query_performance("data/queries/P04775.fasta","data/dbs/uniprot_sprot.fasta");}
 BOOST_AUTO_TEST_CASE(P19096) {run_query_performance("data/queries/P19096.fasta","data/dbs/uniprot_sprot.fasta");}
-/*
 BOOST_AUTO_TEST_CASE(P28167) {run_query_performance("data/queries/P28167.fasta","data/dbs/uniprot_sprot.fasta");}
-BOOST_AUTO_TEST_CASE(P20930) {run_query_performance("data/queries/P20930.fasta","data/dbs/uniprot_sprot.fasta");}
 BOOST_AUTO_TEST_CASE(P0C6B8) {run_query_performance("data/queries/P0C6B8.fasta","data/dbs/uniprot_sprot.fasta");}
+BOOST_AUTO_TEST_CASE(P20930) {run_query_performance("data/queries/P20930.fasta","data/dbs/uniprot_sprot.fasta");}
 BOOST_AUTO_TEST_CASE(P08519) {run_query_performance("data/queries/P08519.fasta","data/dbs/uniprot_sprot.fasta");} 
 BOOST_AUTO_TEST_CASE(P33450) {run_query_performance("data/queries/P33450.fasta","data/dbs/uniprot_sprot.fasta");}
-*/
 BOOST_AUTO_TEST_SUITE_END();
 
 /*BOOST_AUTO_TEST_CASE( P01008 )
