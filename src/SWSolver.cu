@@ -399,7 +399,7 @@ void smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db, vector<seqid_scor
     cudaFree(d_output_scoring);
     cudaFree(d_output_max_score);
 
-    cudaDeviceReset(); // Comment for performance later
+    //cudaDeviceReset(); // Comment for performance later
     return;
 }
 

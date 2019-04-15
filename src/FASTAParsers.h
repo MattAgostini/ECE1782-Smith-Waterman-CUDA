@@ -17,6 +17,18 @@ struct subject_sequence {
     string sequence;
 };
 
+static inline int roundUp(int numToRound, int multiple)
+{
+    if (multiple == 0)
+        return numToRound;
+
+    int remainder = numToRound % multiple;
+    if (remainder == 0)
+        return numToRound;
+
+    return numToRound + multiple - remainder;
+}
+
 class FASTAQuery {
 private:
     bool isQuery;
@@ -53,7 +65,6 @@ class FASTADatabase {
 public:
     // key is sequence length, value is a vector of subject_sequence struct
     map<int, vector<subject_sequence> > parsedDB;
-    vector<subject_sequence> subjectSequences;
     int largestSubjectLength;
     int numSubjects;
     int subjectLengthSum;
@@ -78,15 +89,17 @@ public:
             if (temp[0] == '>') {
                 if (!isFirst) {
                     if (subjectSequence.length() <= LENGTH_THRESHOLD) {
-                        while (subjectSequence.length() % 8 != 0) // pad to nearest 8
-                            subjectSequence = subjectSequence + "/";
+                        //while (subjectSequence.length() % 8 != 0) // pad to nearest 8
+                        //    subjectSequence = subjectSequence + "/";
+			size_t length = subjectSequence.length();
+			size_t rounded = roundUp(length, 8);
+			subjectSequence.append(rounded - length, '/');
 
                         tmp.id = _id;
                         tmp.sequence = subjectSequence;
-						//if (tmp.sequence.length() % 8 != 0) exit(0); sequence length checkers for pad to 8
+			//if (tmp.sequence.length() % 8 != 0) exit(0); sequence length checkers for pad to 8
                         parsedDB[subjectSequence.length()].push_back(tmp);
 
-                        //subjectSequences.push_back(tmp);
                         subjectLengthSum += subjectSequence.length();
                         largestSubjectLength = max(largestSubjectLength, (int)subjectSequence.length());
                         
@@ -106,15 +119,17 @@ public:
         }
         // Adding last sequence 
         if (subjectSequence.length() <= LENGTH_THRESHOLD) {
-            while (subjectSequence.length() % 8 != 0) // pad to nearest 8
-                subjectSequence = subjectSequence + "/";
+	    size_t length = subjectSequence.length();
+	    size_t rounded = roundUp(length, 8);
+	    subjectSequence.append(rounded - length, '/');
+            //while (subjectSequence.length() % 8 != 0) // pad to nearest 8
+            //    subjectSequence = subjectSequence + "/";
 
             tmp.id = _id;
             tmp.sequence = subjectSequence;
 			//if (tmp.sequence.length() % 8 != 0) exit(0); sequence length checkers for pad to 8
             parsedDB[subjectSequence.length()].push_back(tmp);
             
-            //subjectSequences.push_back(tmp);
             subjectLengthSum += subjectSequence.length();
             largestSubjectLength = max(largestSubjectLength, (int)subjectSequence.length());
             
