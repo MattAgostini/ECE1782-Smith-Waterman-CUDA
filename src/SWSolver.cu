@@ -120,44 +120,43 @@ inline float convertStringToFloat(char character) {
 }
 
 // Kernel function for computing the scoring matrix of a sequence
-__global__ void f_scoreSequence(float* subject, float* scoringMatrix, float* maxScoreList, 
-        int width /*largestSubjectLength*/, int height /*querySequence.length()*/, int numSubjects) {
-
+__global__ void f_scoreSequence(short* subject, short* scoringMatrix, short* maxScoreList, int height /*querySequence.length()*/, int scoreOffset) {
 
     //register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
     register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
 
-    if (yIndex == 0) {
-        //printf("GPU: %d %f\n", constSubstitutionMatrix[24], constQuery[0]);
+    // Use map for different offsets (Change the width)
+    unsigned int width = constSubjectLengths[blockIdx.y];
+    unsigned int subjectOffset = constSubjectOffsets[blockIdx.y];
+    unsigned int blockOffset = constScoringOffsets[blockIdx.y];
+
+    for (int i = 0; i < (height + 1); ++i) {
+        scoringMatrix[blockOffset + (threadIdx.y + (blockDim.y * (i)))] = 0;
     }
 
-    float maxScore = 0;
-    if (yIndex < numSubjects) {
-        for (int i = 1; i < (height + 1); i += 8) {
-            for (int j = 1; j < (width + 1); j += 8) {
-                for (int k = 0; k < 8; k++) {
-                    float score = 0;
+    for (int j = 0; j < (width + 1); ++j) {
+        scoringMatrix[blockOffset + (threadIdx.y + ((j) * blockDim.y * (height + 1)))] = 0;
+    }
 
-                    score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + ((i + k) * (width + 1)) + (j + k) - 1] - GAP_PENALTY);
-                    score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + (((i + k) - 1) * (width + 1)) + (j + k)] - GAP_PENALTY);
+    int maxScore = 0;
+    for (int i = 1; i < (height + 1); i ++) {
+        for (int j = 1; j < (width + 1); j ++) {
+            int score = 0;
 
-                    int similarityScore;
-                    // check for padded /'s, (dummy symbol) -> score of zero with a real symbol
-                    if ((int)constQuery[(i + k) - 1] == 25 || (int)subject[width*yIndex + (j + k) - 1] == 25)
-                        similarityScore = 0;
-                    else
-                        similarityScore = constSubstitutionMatrix[((int)constQuery[(i + k) - 1] * 25) + (int)subject[width*yIndex + (j + k) - 1]];
+            score = max(score, scoringMatrix[blockOffset + (width + 1)*(height + 1)*blockIdx.y + ((i) * (width + 1)) + (j) - 1] - GAP_PENALTY);
+            score = max(score, scoringMatrix[blockOffset + (width + 1)*(height + 1)*blockIdx.y + (((i) - 1) * (width + 1)) + (j)] - GAP_PENALTY);
 
-                    score = max(score, scoringMatrix[(width + 1)*(height + 1)*yIndex + (((i + k) - 1) * (width + 1)) + (j + k) - 1] + similarityScore);
+            int similarityScore = constSubstitutionMatrix[((int)constQuery[(i) - 1] * 25) + (int)subject[subjectOffset + width*yIndex + (j) - 1]];
 
-                    maxScore = max(maxScore, score);
+            score = max(score, scoringMatrix[blockOffset + (width + 1)*(height + 1)*blockIdx.y + (((i) - 1) * (width + 1)) + (j) - 1] + similarityScore);
 
-                    scoringMatrix[(width + 1)*(height + 1)*yIndex + ((i + k) * (width + 1)) + (j + k)] = score;
-                }
-            }
+            maxScore = max(maxScore, score);
+
+            scoringMatrix[blockOffset + (width + 1)*(height + 1)*blockIdx.y + ((i) * (width + 1)) + (j)] = score;
         }
-        maxScoreList[yIndex] = maxScore;
     }
+
+    maxScoreList[scoreOffset + yIndex] = maxScore;
 }
 
 // Kernel function for computing the scoring matrix of a sequence
@@ -307,10 +306,10 @@ void smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db, vector<seqid_scor
 
     int resultOffset = 0;
 
-    int blockWidth = 0;
+    int blockWidth = 3000;
     for (map<int, vector<subject_sequence> >::reverse_iterator it = db.parsedDB.rbegin(); it != db.parsedDB.rend(); ++it) {
 
-        blockWidth = max(blockWidth, it->first);
+        //blockWidth = max(blockWidth, it->first);
 
         for (int i = 0; i < it->second.size(); ++i) {
             for (int j = 0; j < blockWidth; j++) {
@@ -328,7 +327,7 @@ void smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db, vector<seqid_scor
                 scoring_offsets[blockNum] = scoring_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth + 1)*(querySequence.length() + 1));
 
                 blockPop = 0;
-                blockWidth = it->first;
+                //blockWidth = it->first;
 
                 // If are going to exceed our resources we need to run a kernel and clean up
                 if ((subject_offsets[blockNum] * sizeof(short)) > CPU_MEM_THRESH || 
@@ -345,7 +344,7 @@ void smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db, vector<seqid_scor
                     dim3 block(1, BLOCK_Y_DIM);
                     dim3 grid(1, grid_y_dim);
 
-                    f_scoreSequenceTiledCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), resultOffset);
+                    f_scoreSequenceCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), resultOffset);
                     resultOffset = resultOffset + (blockNum) * BLOCK_Y_DIM;
 
                     cudaDeviceSynchronize();
@@ -378,7 +377,7 @@ void smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db, vector<seqid_scor
     dim3 block(1, BLOCK_Y_DIM);
     dim3 grid(1, grid_y_dim);
 
-    f_scoreSequenceTiledCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), resultOffset);
+    f_scoreSequenceCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), resultOffset);
 
     cudaDeviceSynchronize();
 
