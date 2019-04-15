@@ -180,23 +180,19 @@ __global__ void f_scoreSequenceCoalesced(short* subject, short* scoringMatrix, s
     }
 
     int maxScore = 0;
-    for (int i = 1; i < (height + 1); i += TILE_SIZE) {
-        for (int j = 1; j < (width + 1); j += TILE_SIZE) {
-            for (int k = 0; k < TILE_SIZE; k++) {
-                for (int m = 0; m < TILE_SIZE; m++) {
-                    int score = 0;
+    for (int i = 1; i < (height + 1); i ++) {
+        for (int j = 1; j < (width + 1); j ++) {
+            int score = 0;
 
-                    score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] - GAP_PENALTY); // F[i, j]
-                    score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] - GAP_PENALTY); // E[i, j]
+            score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + ((j - 1) * blockDim.y * (height + 1))) + (blockDim.y * i)] - GAP_PENALTY); // F[i, j]
+            score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (j * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))] - GAP_PENALTY); // E[i, j]
 
-                    int similarityScore = constSubstitutionMatrix[((int)constQuery[(i + m) - 1] * 25) + (int)subject[subjectOffset + threadIdx.y + (((j + k) - 1) * blockDim.y)]];
-                    score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] + similarityScore); // H(i-1, j-1) + sbt(Sa[i], Sb[j])
+            int similarityScore = constSubstitutionMatrix[((int)constQuery[i - 1] * 25) + (int)subject[subjectOffset + threadIdx.y + ((j - 1) * blockDim.y)]];
+            score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + ((j - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))] + similarityScore); // H(i-1, j-1) + sbt(Sa[i], Sb[j])
 
-                    maxScore = max(maxScore, score); // H[i, j]
+            maxScore = max(maxScore, score); // H[i, j]
 
-               	    scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] = score;
-                }
-            }
+            scoringMatrix[blockOffset + (threadIdx.y + (j * blockDim.y * (height + 1))) + (blockDim.y * i)] = score;
         }
     }
 
