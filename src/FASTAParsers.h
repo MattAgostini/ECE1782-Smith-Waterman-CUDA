@@ -9,6 +9,7 @@
 #include <vector>
 
 #define LENGTH_THRESHOLD 3000
+#define TILE_SIZE 8
 
 using namespace std;
 
@@ -92,7 +93,7 @@ public:
                         //while (subjectSequence.length() % 8 != 0) // pad to nearest 8
                         //    subjectSequence = subjectSequence + "/";
 			size_t length = subjectSequence.length();
-			size_t rounded = roundUp(length, 8);
+			size_t rounded = roundUp(length, TILE_SIZE);
 			subjectSequence.append(rounded - length, '/');
 
                         tmp.id = _id;
@@ -120,7 +121,7 @@ public:
         // Adding last sequence 
         if (subjectSequence.length() <= LENGTH_THRESHOLD) {
 	    size_t length = subjectSequence.length();
-	    size_t rounded = roundUp(length, 8);
+	    size_t rounded = roundUp(length, TILE_SIZE);
 	    subjectSequence.append(rounded - length, '/');
             //while (subjectSequence.length() % 8 != 0) // pad to nearest 8
             //    subjectSequence = subjectSequence + "/";
