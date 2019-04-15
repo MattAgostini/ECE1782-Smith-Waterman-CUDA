@@ -180,47 +180,88 @@ __global__ void f_scoreSequenceCoalesced(short* subject, short* scoringMatrix, s
     }
 
     int maxScore = 0;
-    int up_data, diagonal_nosim_data, diagonal_sim_data = 0;
-    int similarityScore;
     for (int i = 1; i < (height + 1); i += TILE_SIZE) {
         for (int j = 1; j < (width + 1); j += TILE_SIZE) {
             for (int k = 0; k < TILE_SIZE; k++) {
-		//int bottom_score = 0;
+                for (int m = 0; m < TILE_SIZE; m++) {
+                    int score = 0;
 
-		// load above, left, and diagonal for the first access
-		//left_data = (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i))] - GAP_PENALTY; // F[]
+                    score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] - GAP_PENALTY); // F[i, j]
+                    score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] - GAP_PENALTY); // E[i, j]
 
+                    int similarityScore = constSubstitutionMatrix[((int)constQuery[(i + m) - 1] * 25) + (int)subject[subjectOffset + threadIdx.y + (((j + k) - 1) * blockDim.y)]];
+                    score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] + similarityScore); // H(i-1, j-1) + sbt(Sa[i], Sb[j])
+
+                    maxScore = max(maxScore, score); // H[i, j]
+
+               	    scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] = score;
+                }
+            }
+        }
+    }
+
+    maxScoreList[scoreOffset + yIndex] = maxScore;
+}
+
+__global__ void f_scoreSequenceTiledCoalesced(short* subject, short* scoringMatrix, short* maxScoreList, int height /*querySequence.length()*/, int scoreOffset) {
+
+    __shared__ int left_tile[TILE_SIZE];
+
+    //register int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
+    register int yIndex = threadIdx.y + blockIdx.y * blockDim.y;
+
+    // Use map for different offsets (Change the width)
+    unsigned int width = constSubjectLengths[blockIdx.y];
+    unsigned int subjectOffset = constSubjectOffsets[blockIdx.y];
+    unsigned int blockOffset = constScoringOffsets[blockIdx.y];
+
+    for (int i = 0; i < (height + 1); ++i) {
+        scoringMatrix[blockOffset + (threadIdx.y + (blockDim.y * (i)))] = 0;
+    }
+
+    for (int j = 0; j < (width + 1); ++j) {
+        scoringMatrix[blockOffset + (threadIdx.y + ((j) * blockDim.y * (height + 1)))] = 0;
+    }
+
+    int maxScore = 0;
+    int up_data, diagonal_nosim_data, diagonal_sim_data = 0;
+    int similarityScore, score;
+    for (int i = 1; i < (height + 1); i += TILE_SIZE) {
+        // set all values in left_tile to 0
+        for (int p = 0; p < TILE_SIZE; p++)
+            left_tile[p] = 0;
+
+        for (int j = 1; j < (width + 1); j += TILE_SIZE) {
+            for (int k = 0; k < TILE_SIZE; k++) {
+		// load up and diagonal for the first access
 		up_data = (int)scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))]; // E[]
 
 		diagonal_nosim_data = (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))];
 
                 for (int m = 0; m < TILE_SIZE; m++) {
-                    int left_data, score = 0;
+                    int left_data;
+                    score = 0;
 
 		    // calculate diagonal_sim_data
 		    similarityScore = constSubstitutionMatrix[((int)constQuery[(i + m) - 1] * 25) + (int)subject[subjectOffset + threadIdx.y + (((j + k) - 1) * blockDim.y)]];
 		    diagonal_sim_data = diagonal_nosim_data + similarityScore;
 
-		    // load left_data
-		    left_data = (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))];
+		    left_data = left_tile[m];
 
 		    // calculate the new score for cell H[i+m, j+k]
 		    score = max(max(max(score, left_data - GAP_PENALTY), up_data - GAP_PENALTY), diagonal_sim_data);
-		   
-                    //score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] - GAP_PENALTY); // F[i, j]
-                    //score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] - GAP_PENALTY); // E[i, j]
-
-                    //int similarityScore = constSubstitutionMatrix[((int)constQuery[(i + m) - 1] * 25) + (int)subject[subjectOffset + threadIdx.y + (((j + k) - 1) * blockDim.y)]];
-                    //score = max(score, (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * ((i + m) - 1))] + similarityScore); // H(i-1, j-1) + sbt(Sa[i], Sb[j])
-
+		    
                     maxScore = max(maxScore, score); // H[i, j]
 
-               	    scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] = score;
+                    left_tile[m] = score;
+               	    //scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (i + m))] = score;
 
 		    // set next up_data to H value and next diagonal_data to left_data
 		    up_data = score;
 		    diagonal_nosim_data = left_data;
+
                 }
+                scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (i + 7))] = score;
             }
         }
     }
@@ -308,7 +349,7 @@ void smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db, vector<seqid_scor
                     dim3 block(1, BLOCK_Y_DIM);
                     dim3 grid(1, grid_y_dim);
 
-                    f_scoreSequenceCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), resultOffset);
+                    f_scoreSequenceTiledCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), resultOffset);
                     resultOffset = resultOffset + (blockNum) * BLOCK_Y_DIM;
 
                     cudaDeviceSynchronize();
@@ -341,7 +382,7 @@ void smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db, vector<seqid_scor
     dim3 block(1, BLOCK_Y_DIM);
     dim3 grid(1, grid_y_dim);
 
-    f_scoreSequenceCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), resultOffset);
+    f_scoreSequenceTiledCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), resultOffset);
 
     cudaDeviceSynchronize();
 
