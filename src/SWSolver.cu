@@ -210,7 +210,7 @@ __global__ void f_scoreSequenceTiledCoalesced(short* subject, short* scoringMatr
     unsigned int subjectOffset = constSubjectOffsets[blockIdx.y];
     unsigned int blockOffset = constScoringOffsets[blockIdx.y];
 
-    for (int i = 0; i < (height + 1); ++i) {
+    for (int i = 0; i < (height/8 + 1); ++i) {
         scoringMatrix[blockOffset + (threadIdx.y + (blockDim.y * (i)))] = 0;
     }
 
@@ -232,9 +232,9 @@ __global__ void f_scoreSequenceTiledCoalesced(short* subject, short* scoringMatr
         for (int j = 1; j < (width + 1); j += TILE_SIZE) {
             for (int k = 0; k < TILE_SIZE; k++) {
 		// load up and diagonal for the first access
-		up_data = (int)scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (collapsedMatrix - 1))]; // E[]
+		up_data = (int)scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height/8 + 1))) + (blockDim.y * (collapsedMatrix - 1))]; // E[]
 
-		diagonal_nosim_data = (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (collapsedMatrix - 1))];
+		diagonal_nosim_data = (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height/8 + 1))) + (blockDim.y * (collapsedMatrix - 1))];
 
                 for (int m = 0; m < TILE_SIZE; m++) {
                     int left_data;
@@ -259,7 +259,7 @@ __global__ void f_scoreSequenceTiledCoalesced(short* subject, short* scoringMatr
 		    diagonal_nosim_data = left_data;
 
                 }
-                scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (collapsedMatrix))] = score;
+                scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height/8 + 1))) + (blockDim.y * (collapsedMatrix))] = score;
             }
         }
     }
@@ -309,10 +309,10 @@ void smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db, vector<seqid_scor
 
     int resultOffset = 0;
 
-    int blockWidth = 3000;
+    int blockWidth = 0;
     for (map<int, vector<subject_sequence> >::reverse_iterator it = db.parsedDB.rbegin(); it != db.parsedDB.rend(); ++it) {
 
-        //blockWidth = max(blockWidth, it->first);
+        blockWidth = max(blockWidth, it->first);
 
         for (int i = 0; i < it->second.size(); ++i) {
             for (int j = 0; j < blockWidth; j++) {
@@ -327,10 +327,10 @@ void smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db, vector<seqid_scor
             if (blockPop >= BLOCK_Y_DIM) {
                 subject_lengths[blockNum - 1] = blockWidth;
                 subject_offsets[blockNum] = subject_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth));
-                scoring_offsets[blockNum] = scoring_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth + 1)*(querySequence.length() + 1));
+                scoring_offsets[blockNum] = scoring_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth + 1)*(querySequence.length()/8 + 1));
 
                 blockPop = 0;
-                //blockWidth = it->first;
+                blockWidth = it->first;
 
                 // If are going to exceed our resources we need to run a kernel and clean up
                 if ((subject_offsets[blockNum] * sizeof(short)) > CPU_MEM_THRESH || 
@@ -347,7 +347,7 @@ void smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db, vector<seqid_scor
                     dim3 block(1, BLOCK_Y_DIM);
                     dim3 grid(1, grid_y_dim);
 
-                    f_scoreSequenceCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), resultOffset);
+                    f_scoreSequenceTiledCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), resultOffset);
                     resultOffset = resultOffset + (blockNum) * BLOCK_Y_DIM;
 
                     cudaDeviceSynchronize();
@@ -366,7 +366,7 @@ void smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db, vector<seqid_scor
     if (blockPop != 0) {
         subject_lengths[blockNum - 1] = blockWidth;
         subject_offsets[blockNum] = subject_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth));
-        scoring_offsets[blockNum] = scoring_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth + 1)*(querySequence.length() + 1));
+        scoring_offsets[blockNum] = scoring_offsets[blockNum - 1] + ((BLOCK_Y_DIM)*(blockWidth + 1)*(querySequence.length()/8 + 1));
     }
 
     // Load in the constant memory
@@ -380,7 +380,7 @@ void smith_waterman_cuda(FASTAQuery &query, FASTADatabase &db, vector<seqid_scor
     dim3 block(1, BLOCK_Y_DIM);
     dim3 grid(1, grid_y_dim);
 
-    f_scoreSequenceCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), resultOffset);
+    f_scoreSequenceTiledCoalesced<<<grid, block>>>(d_input_subject, d_output_scoring, d_output_max_score, querySequence.length(), resultOffset);
 
     cudaDeviceSynchronize();
 
