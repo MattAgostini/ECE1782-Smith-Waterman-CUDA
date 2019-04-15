@@ -222,7 +222,10 @@ __global__ void f_scoreSequenceTiledCoalesced(short* subject, short* scoringMatr
     int maxScore = 0;
     int up_data, diagonal_nosim_data, diagonal_sim_data = 0;
     int similarityScore, score;
+    int collapsedMatrix = 0;
     for (int i = 1; i < (height + 1); i += TILE_SIZE) {
+        collapsedMatrix++;
+
         // set all values in left_tile to 0
         for (int p = 0; p < TILE_SIZE; p++)
             left_tile[p] = 0;
@@ -230,9 +233,9 @@ __global__ void f_scoreSequenceTiledCoalesced(short* subject, short* scoringMatr
         for (int j = 1; j < (width + 1); j += TILE_SIZE) {
             for (int k = 0; k < TILE_SIZE; k++) {
 		// load up and diagonal for the first access
-		up_data = (int)scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))]; // E[]
+		up_data = (int)scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (collapsedMatrix - 1))]; // E[]
 
-		diagonal_nosim_data = (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (i - 1))];
+		diagonal_nosim_data = (int)scoringMatrix[blockOffset + (threadIdx.y + (((j + k) - 1) * blockDim.y * (height + 1))) + (blockDim.y * (collapsedMatrix - 1))];
 
                 for (int m = 0; m < TILE_SIZE; m++) {
                     int left_data;
@@ -257,7 +260,7 @@ __global__ void f_scoreSequenceTiledCoalesced(short* subject, short* scoringMatr
 		    diagonal_nosim_data = left_data;
 
                 }
-                scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (i + 7))] = score;
+                scoringMatrix[blockOffset + (threadIdx.y + ((j + k) * blockDim.y * (height + 1))) + (blockDim.y * (collapsedMatrix))] = score;
             }
         }
     }
